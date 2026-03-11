@@ -1,0 +1,43 @@
+{
+    "Report": {
+        "Name": "Microsoft Purview As Built Report",
+        "_comment_Name": "Keep this in sync with Options.ReportType. AsBuilt = \"Microsoft Purview As Built Report\" | Assessment = \"Microsoft Purview Optimization Assessment Report\". The module also auto-corrects this at runtime based on ReportType.",
+        "Version": "0.1.0",
+        "Status": "Released",
+        "ShowCoverPageImage": true,
+        "ShowTableOfContents": true,
+        "ShowHeaderFooter": true,
+        "ShowTableCaptions": true,
+        "CoverPageImage": "",
+        "_comment_CoverPageImage": "Leave blank. The module automatically sets this to the bundled Purview logo (Src/Public/AsBuiltReport.Microsoft.Purview.png) at runtime. You can override with an absolute path to a custom PNG if desired."
+    },
+    "Options": {
+        "ShowDefinitionInfo": false,
+        "UserPrincipalName": "admin@M365x29024066.onmicrosoft.com",
+        "ReportType": "AsBuilt",
+        "_comment_ReportType": "AsBuilt = 'Microsoft Purview As Built Report' (standard documentation) | Assessment = 'Microsoft Purview Optimization Assessment Report' (90+ POA controls with remediation plan)"
+    },
+    "InfoLevel": {
+        "_comment_": "0 = Disabled, 1 = Summary, 2 = Detailed",
+        "InformationProtection": 2,
+        "DLP": 2,
+        "Retention": 2,
+        "EDiscovery": 2,
+        "Audit": 2,
+        "InsiderRisk": 2,
+        "CommunicationCompliance": 2,
+        "ComplianceManager": 2
+    },
+    "HealthCheck": {
+        "Purview": {
+            "DLP": true,
+            "InformationProtection": true,
+            "Retention": true,
+            "EDiscovery": true,
+            "Audit": true,
+            "InsiderRisk": true,
+            "CommunicationCompliance": true,
+            "ComplianceManager": true
+        }
+    }
+}
