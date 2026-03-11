@@ -127,30 +127,44 @@ function Show-AbrDebugExecutionTime {
     }
 }
 
+
+function ConvertTo-TextYN {
+    [CmdletBinding()]
+    [OutputType([String])]
+    param (
+        [Parameter(Position = 0, Mandatory)]
+        $TEXT
+    )
+    switch ($TEXT) {
+        $true  { return 'Yes' }
+        $false { return 'No' }
+        $null  { return '--' }
+        ''     { return '--' }
+        default { return $TEXT }
+    }
+}
+
 function ConvertTo-HashToYN {
-    <#
+        <#
     .SYNOPSIS
     Converts boolean values in a hashtable to Yes/No strings.
-    Compatible shim for AsBuiltReport.Core's ConvertTo-HashToYN.
     #>
     [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
     param (
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [hashtable]$Hash
+        [Parameter(Position = 0, Mandatory)]
+        [AllowEmptyString()]
+        [System.Collections.Specialized.OrderedDictionary] $TEXT
     )
-
-    process {
-        $Result = [ordered]@{}
-        foreach ($Key in $Hash.Keys) {
-            $Value = $Hash[$Key]
-            if ($Value -is [bool]) {
-                $Result[$Key] = if ($Value) { 'Yes' } else { 'No' }
-            } elseif ($null -eq $Value -or $Value -eq '') {
-                $Result[$Key] = '--'
-            } else {
-                $Result[$Key] = $Value
-            }
+    $result = [ordered] @{}
+    foreach ($i in $TEXT.GetEnumerator()) {
+        try {
+            $result.add($i.Key, (ConvertTo-TextYN $i.Value))
+        } catch {
+            $result.add($i.Key, ($i.Value))
         }
-        return $Result
     }
+    if ($result) {
+        $result
+    } else { $TEXT }
 }

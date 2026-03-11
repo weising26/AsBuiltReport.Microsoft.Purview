@@ -119,7 +119,7 @@ function Invoke-AsBuiltReport.Microsoft.Purview {
     #---------------------------------------------------------------------------------------------#
     if ($Healthcheck) {
         Section -Style TOC -ExcludeFromTOC 'DISCLAIMER' {
-            Paragraph 'This report was generated using the AsBuiltReport framework. Health check indicators are provided as guidance only and should be validated by a qualified administrator before remediation. Color coding: RED = Critical issue requiring immediate attention, YELLOW/AMBER = Warning requiring review.'
+            Paragraph 'This report was generated using the AsBuiltReport framework and provides a snapshot of the current Microsoft Purview configuration at the time of generation. The information in this report is intended for documentation and reference purposes. Any configuration settings should be reviewed and validated by a qualified administrator before making changes.'
         }
         PageBreak
     }
@@ -186,17 +186,6 @@ function Invoke-AsBuiltReport.Microsoft.Purview {
         Write-Host "  - Report type: $ReportType" -ForegroundColor Cyan
         Write-TranscriptLog "Report type: $ReportType" 'INFO' 'MAIN' | Out-Null
 
-        if ($ReportType -eq 'Assessment') {
-
-            #------------------------------------------------------------------#
-            #  ASSESSMENT MODE — Purview Optimization Assessment (POA)         #
-            #  All 90+ controls auto-scored from live config data              #
-            #------------------------------------------------------------------#
-            Write-Host '- Working on Purview Optimization Assessment section.'
-            Get-AbrPurviewAssessment -TenantId $script:TenantName
-
-        } else {
-
             #------------------------------------------------------------------#
             #  ASBUILT MODE — Standard documentation sections                  #
             #------------------------------------------------------------------#
@@ -230,6 +219,19 @@ function Invoke-AsBuiltReport.Microsoft.Purview {
                 Write-Host '- Working on Risk and Compliance section.'
                 Get-AbrPurviewRiskAndComplianceSection -TenantId $script:TenantName
             }
+
+
+        if ($ReportType -eq 'Assessment') {
+
+            #------------------------------------------------------------------#
+            #  ASSESSMENT MODE — Purview Optimization Assessment (POA)         #
+            #  All 90+ controls auto-scored from live config data              #
+            #------------------------------------------------------------------#
+            Write-Host '- Working on Purview Optimization Assessment section.'
+            Get-AbrPurviewAssessment -TenantId $script:TenantName
+
+        } else {
+
 
         } # end ReportType branch
 
