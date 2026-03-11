@@ -41,9 +41,9 @@ function Get-AbrPurviewRetentionPolicy {
 
                     $CovObj = [System.Collections.ArrayList]::new()
                     $covInObj = [ordered] @{
-                        'Retention Policies Configured'    = ($RetentionPolicies.Count -gt 0)
-                        'Has Preservation Lock Policy'     = ($null -ne $HasPreservationLock)
-                        'Uses Adaptive Scopes'             = ($null -ne $HasAdaptiveScope)
+                        'Retention Policies Configured'    = if ($RetentionPolicies.Count -gt 0) { 'Yes' } else { 'No' }
+                        'Has Preservation Lock Policy'     = if ($null -ne $HasPreservationLock) { 'Yes' } else { 'No' }
+                        'Uses Adaptive Scopes'             = if ($null -ne $HasAdaptiveScope) { 'Yes' } else { 'No' }
                     }
                     $CovObj.Add([pscustomobject](ConvertTo-HashToYN $covInObj)) | Out-Null
 

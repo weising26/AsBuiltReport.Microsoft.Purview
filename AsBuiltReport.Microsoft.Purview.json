@@ -14,8 +14,8 @@
     "Options": {
         "ShowDefinitionInfo": false,
         "UserPrincipalName": "admin@M365x29024066.onmicrosoft.com",
-        "ReportType": "AsBuilt",
-        "_comment_ReportType": "AsBuilt = 'Microsoft Purview As Built Report' (standard documentation) | Assessment = 'Microsoft Purview Optimization Assessment Report' (90+ POA controls with remediation plan)"
+        "ReportType": "Both",
+        "_comment_ReportType": "AsBuilt = standard documentation | Assessment = 90+ POA controls | Both = AsBuilt documentation followed by Assessment"
     },
     "InfoLevel": {
         "_comment_": "0 = Disabled, 1 = Summary, 2 = Detailed",

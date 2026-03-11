@@ -38,9 +38,9 @@ function Get-AbrPurviewEDiscovery {
                     #region Coverage Summary
                     $CovObj = [System.Collections.ArrayList]::new()
                     $covInObj = [ordered] @{
-                        'Core eDiscovery Cases'     = ($CoreCases.Count -gt 0)
-                        'Advanced eDiscovery Cases' = ($AdvancedCases.Count -gt 0)
-                        'Active Case Holds'         = ($AllHolds.Count -gt 0)
+                        'Core eDiscovery Cases'     = if ($CoreCases.Count -gt 0) { 'Yes' } else { 'No' }
+                        'Advanced eDiscovery Cases' = if ($AdvancedCases.Count -gt 0) { 'Yes' } else { 'No' }
+                        'Active Case Holds'         = if ($AllHolds.Count -gt 0) { 'Yes' } else { 'No' }
                     }
                     $CovObj.Add([pscustomobject](ConvertTo-HashToYN $covInObj)) | Out-Null
 
@@ -66,7 +66,7 @@ function Get-AbrPurviewEDiscovery {
                                 'Members'     = if ($Case.Members) { ($Case.Members -join ', ') } else { 'N/A' }
                                 'Closed By'   = if ($Case.ClosedBy) { $Case.ClosedBy } else { 'N/A' }
                                 'Closed Time' = if ($Case.ClosedDateTime) { $Case.ClosedDateTime.ToString('yyyy-MM-dd') } else { 'N/A' }
-                                'Created'     = $Case.WhenCreated.ToString('yyyy-MM-dd')
+                                'Created'     = if ($Case.WhenCreated) { $Case.WhenCreated.ToString('yyyy-MM-dd') } else { 'N/A' }
                             }
                             $OutObj.Add([pscustomobject](ConvertTo-HashToYN $inObj)) | Out-Null
                         } catch {
@@ -82,7 +82,9 @@ function Get-AbrPurviewEDiscovery {
 
                     $TableParams = @{ Name = "eDiscovery Cases - $TenantId"; List = $false; ColumnWidths = 20, 10, 12, 20, 14, 12, 12 }
                     $null = (& { if ($Report.ShowTableCaptions) { $TableParams['Caption'] = "- $($TableParams.Name)" } })
-                    $OutObj | Sort-Object -Property 'Case Name' | Table @TableParams
+                    if ($OutObj.Count -gt 0) {
+                        $OutObj | Sort-Object -Property 'Case Name' | Table @TableParams
+                    }
                     #endregion
 
                     #region Case Holds per case (InfoLevel 2+)

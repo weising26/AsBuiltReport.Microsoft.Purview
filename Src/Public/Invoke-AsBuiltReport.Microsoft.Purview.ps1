@@ -90,6 +90,8 @@ function Invoke-AsBuiltReport.Microsoft.Purview {
     $EarlyReportType = if ($ReportConfig.Options.ReportType) { $ReportConfig.Options.ReportType.Trim() } else { 'AsBuilt' }
     if ($EarlyReportType -eq 'Assessment') {
         $ReportConfig.Report.Name = 'Microsoft Purview Optimization Assessment Report'
+    } elseif ($EarlyReportType -eq 'Both') {
+        $ReportConfig.Report.Name = 'Microsoft Purview As Built Report with Assessment'
     } else {
         $ReportConfig.Report.Name = 'Microsoft Purview As Built Report'
     }
@@ -185,54 +187,44 @@ function Invoke-AsBuiltReport.Microsoft.Purview {
         $ReportType = if ($Options.ReportType) { $Options.ReportType.Trim() } else { 'AsBuilt' }
         Write-Host "  - Report type: $ReportType" -ForegroundColor Cyan
         Write-TranscriptLog "Report type: $ReportType" 'INFO' 'MAIN' | Out-Null
+        
+        if ($ReportType -ne 'Assessment') {
 
             #------------------------------------------------------------------#
             #  ASBUILT MODE — Standard documentation sections                  #
             #------------------------------------------------------------------#
 
-            # Information Protection (Sensitivity Labels + DLP)
             if ($InfoLevel.InformationProtection -ge 1 -or $InfoLevel.DLP -ge 1) {
                 Write-Host '- Working on Information Protection section.'
                 Get-AbrPurviewInformationProtectionSection -TenantId $script:TenantName
             }
-
-            # Data Lifecycle Management (Retention)
             if ($InfoLevel.Retention -ge 1) {
                 Write-Host '- Working on Data Lifecycle Management section.'
                 Get-AbrPurviewDataLifecycleSection -TenantId $script:TenantName
             }
-
-            # eDiscovery
             if ($InfoLevel.EDiscovery -ge 1) {
                 Write-Host '- Working on eDiscovery section.'
                 Get-AbrPurviewEDiscoverySection -TenantId $script:TenantName
             }
-
-            # Audit
             if ($InfoLevel.Audit -ge 1) {
                 Write-Host '- Working on Audit section.'
                 Get-AbrPurviewAuditSection -TenantId $script:TenantName
             }
-
-            # Risk & Compliance (Insider Risk + Communication Compliance + Compliance Manager)
             if ($InfoLevel.InsiderRisk -ge 1 -or $InfoLevel.CommunicationCompliance -ge 1 -or $InfoLevel.ComplianceManager -ge 1) {
                 Write-Host '- Working on Risk and Compliance section.'
                 Get-AbrPurviewRiskAndComplianceSection -TenantId $script:TenantName
             }
 
-
-        if ($ReportType -eq 'Assessment') {
+        if ($ReportType -eq 'Assessment' -or $ReportType -eq 'Both') {
 
             #------------------------------------------------------------------#
             #  ASSESSMENT MODE — Purview Optimization Assessment (POA)         #
-            #  All 90+ controls auto-scored from live config data              #
             #------------------------------------------------------------------#
             Write-Host '- Working on Purview Optimization Assessment section.'
             Get-AbrPurviewAssessment -TenantId $script:TenantName
+        }
 
-        } else {
-
-
+        
         } # end ReportType branch
 
         #---------------------------------------------------------------------------------------------#

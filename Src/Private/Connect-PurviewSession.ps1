@@ -146,6 +146,7 @@ function Connect-PurviewSession {
                 'Organization.Read.All'
                 'Directory.Read.All'
                 'AuditLog.Read.All'
+                'SecurityEvents.Read.All'                          # Insider Risk policies
             )
 
             Invoke-WithRetry -ScriptBlock {

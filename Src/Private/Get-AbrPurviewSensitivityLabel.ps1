@@ -55,11 +55,11 @@ function Get-AbrPurviewSensitivityLabel {
 
                     $CovObj = [System.Collections.ArrayList]::new()
                     $covInObj = [ordered] @{
-                        'Labels Configured'                    = ($Labels.Count -gt 0)
-                        'Labels with Encryption'               = ($null -ne $HasEncryption)
-                        'Labels with Content Marking'          = ($null -ne $HasContentMarking)
-                        'Labels with Auto-Labeling (per-label)'= ($null -ne $HasAutoLabeling)
-                        'Auto-Labeling Policies Configured'    = ($null -ne $AutoLabelPolicies -and @($AutoLabelPolicies).Count -gt 0)
+                        'Labels Configured'                    = if ($Labels.Count -gt 0) { 'Yes' } else { 'No' }
+                        'Labels with Encryption'               = if ($null -ne $HasEncryption) { 'Yes' } else { 'No' }
+                        'Labels with Content Marking'          = if ($null -ne $HasContentMarking) { 'Yes' } else { 'No' }
+                        'Labels with Auto-Labeling (per-label)'= if ($null -ne $HasAutoLabeling) { 'Yes' } else { 'No' }
+                        'Auto-Labeling Policies Configured'    = if ($null -ne $AutoLabelPolicies -and @($AutoLabelPolicies).Count -gt 0) { 'Yes' } else { 'No' }
                     }
                     $CovObj.Add([pscustomobject](ConvertTo-HashToYN $covInObj)) | Out-Null
 

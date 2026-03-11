@@ -40,10 +40,10 @@ function Get-AbrPurviewRecordManagement {
 
                     $CovObj = [System.Collections.ArrayList]::new()
                     $covInObj = [ordered] @{
-                        'Record Labels Configured'           = ($null -ne $RecordLabels)
-                        'Regulatory Records Configured'      = ($null -ne $RegulatoryLabels)
-                        'Disposition Review Configured'      = ($null -ne $DispositionLabels)
-                        'Event-Based Retention Configured'   = ($null -ne $EventLabels)
+                        'Record Labels Configured'           = if ($null -ne $RecordLabels) { 'Yes' } else { 'No' }
+                        'Regulatory Records Configured'      = if ($null -ne $RegulatoryLabels) { 'Yes' } else { 'No' }
+                        'Disposition Review Configured'      = if ($null -ne $DispositionLabels) { 'Yes' } else { 'No' }
+                        'Event-Based Retention Configured'   = if ($null -ne $EventLabels) { 'Yes' } else { 'No' }
                     }
                     $CovObj.Add([pscustomobject](ConvertTo-HashToYN $covInObj)) | Out-Null
 
