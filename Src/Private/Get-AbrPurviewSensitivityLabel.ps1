@@ -28,6 +28,13 @@ function Get-AbrPurviewSensitivityLabel {
         # and the dedicated Auto-Labeling Policies section below.
         $AutoLabelPolicies = try { Get-AutoSensitivityLabelPolicy -ErrorAction Stop } catch { @() }
 
+        # GAP 4 (MCCA check-IP103): AIP unified labeling migration status
+        $AIPUnifiedLabelingEnabled = $null
+        try {
+            $AIPConfig = Get-AIPServiceConfiguration -ErrorAction SilentlyContinue
+            if ($AIPConfig) { $AIPUnifiedLabelingEnabled = $AIPConfig.UnifiedLabelingEnabled }
+        } catch { }  # cmdlet only available when AIPService module present; non-fatal
+
         #region Sensitivity Labels
         try {
             $Labels = Get-Label -ErrorAction Stop
@@ -78,12 +85,14 @@ function Get-AbrPurviewSensitivityLabel {
                         $_pre_LabelswithContentMar_78 = if ($null -ne $HasContentMarking) { 'Yes' } else { 'No' }
                         $_pre_LabelswithAutoLabeli_79 = if ($null -ne $HasAutoLabeling) { 'Yes' } else { 'No' }
                         $_pre_AutoLabelingPolicies_80 = if ($null -ne $AutoLabelPolicies -and @($AutoLabelPolicies).Count -gt 0) { 'Yes' } else { 'No' }
+                        $_pre_AIPUnifiedLabeling_81   = if ($null -eq $AIPUnifiedLabelingEnabled) { 'Unknown' } elseif ($AIPUnifiedLabelingEnabled) { 'Yes' } else { 'No — migration required' }
                     $covInObj = [ordered] @{
                         'Labels Configured' = $_pre_LabelsConfigured_76
                         'Labels with Encryption' = $_pre_LabelswithEncryption_77
                         'Labels with Content Marking' = $_pre_LabelswithContentMar_78
                         'Labels with Auto-Labeling (per-label)' = $_pre_LabelswithAutoLabeli_79
                         'Auto-Labeling Policies Configured' = $_pre_AutoLabelingPolicies_80
+                        'AIP Unified Labeling Enabled'      = $_pre_AIPUnifiedLabeling_81
                     }
                     $CovObj.Add([pscustomobject]$covInObj) | Out-Null
 
@@ -91,6 +100,7 @@ function Get-AbrPurviewSensitivityLabel {
                         $CovObj | Where-Object { $_.'Labels Configured' -eq 'No' }                     | Set-Style -Style Critical | Out-Null
                         $CovObj | Where-Object { $_.'Labels with Encryption' -eq 'No' }                | Set-Style -Style Warning  | Out-Null
                         $CovObj | Where-Object { $_.'Auto-Labeling Policies Configured' -eq 'No' }     | Set-Style -Style Warning  | Out-Null
+                        $CovObj | Where-Object { $_.'AIP Unified Labeling Enabled' -match 'migration' } | Set-Style -Style Warning  | Out-Null
                     }
 
                     $CovTableParams = @{ Name = "Information Protection Coverage - $TenantId"; List = $true; ColumnWidths = 55, 45 }

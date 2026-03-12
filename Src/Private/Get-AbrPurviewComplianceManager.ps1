@@ -43,8 +43,10 @@ function Get-AbrPurviewComplianceManager {
                     $SecureScoreResp.value | Select-Object -First 1
                 } else { $null }
 
-                Section -Style Heading3 'Microsoft Secure Score & Compliance Manager' {
+                Section -Style Heading3 'Compliance Posture' {
                     if ($Score) {
+                        Paragraph "Microsoft Secure Score measures the overall security and compliance posture of the tenant across identity, data, devices, apps, and infrastructure. The score below reflects the tenant's current position relative to the maximum achievable score and the average across all Microsoft tenants."
+                        BlankLine
                         $scoreDate = if ($Score.createdDateTime) { ([datetime]$Score.createdDateTime).ToString('yyyy-MM-dd') } else { 'N/A' }
                         $scorePct  = if ($Score.maxScore -gt 0) { "$([math]::Round(($Score.currentScore / $Score.maxScore) * 100, 1))%" } else { 'N/A' }
                         $allTenantsAvg = $Score.averageComparativeScores | Where-Object { $_.basis -eq 'allTenants' }

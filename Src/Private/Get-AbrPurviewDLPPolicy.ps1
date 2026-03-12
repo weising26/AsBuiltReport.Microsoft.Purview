@@ -388,6 +388,135 @@ function Get-AbrPurviewDLPPolicy {
                         }
                     }
                     #endregion
+
+                    #region DLP Category Gap Analysis — MCCA ImprovementActions XML (InfoLevel 3)
+                    # Uses DLPImprovementActions.xml to evaluate coverage by category (Financial, PII, ePHI etc.)
+                    # filtered to SITs actually relevant to the tenant's detected geo regions.
+                    if ($script:InfoLevel.DLP -ge 3) {
+                        try {
+                            # --- Build SIT -> workload coverage map from live policies ---
+                            $SITCoverage    = @{}
+                            $WLKeys         = @('Exchange','SharePoint','OneDrive','Teams','Endpoint','Copilot')
+                            $ActivePolicies = $DLPPolicies | Where-Object { $_.Mode -ne 'PendingDeletion' }
+
+                            foreach ($Policy in $ActivePolicies) {
+                                $WL = ($Policy.Workload -join ',').ToLower()
+                                $coveredWL = @()
+                                if ($WL -match 'exchange')            { $coveredWL += 'Exchange' }
+                                if ($WL -match 'sharepoint')          { $coveredWL += 'SharePoint' }
+                                if ($WL -match 'onedrive')            { $coveredWL += 'OneDrive' }
+                                if ($WL -match 'teams')               { $coveredWL += 'Teams' }
+                                if ($WL -match 'endpoint|device')     { $coveredWL += 'Endpoint' }
+                                if ($WL -match 'copilot|thirdparty')  { $coveredWL += 'Copilot' }
+                                if ($coveredWL.Count -eq 0) {
+                                    if ($Policy.ExchangeLocation)         { $coveredWL += 'Exchange' }
+                                    if ($Policy.SharePointLocation)       { $coveredWL += 'SharePoint' }
+                                    if ($Policy.OneDriveLocation)         { $coveredWL += 'OneDrive' }
+                                    if ($Policy.TeamsLocation)            { $coveredWL += 'Teams' }
+                                    if ($Policy.EndpointDlpLocation)      { $coveredWL += 'Endpoint' }
+                                    if ($Policy.ThirdPartyAppDlpLocation) { $coveredWL += 'Copilot' }
+                                }
+
+                                $Rules = Get-DlpComplianceRule -Policy $Policy.Name -ErrorAction SilentlyContinue
+                                foreach ($Rule in ($Rules | Where-Object { $_.ContentContainsSensitiveInformation })) {
+                                    foreach ($sit in $Rule.ContentContainsSensitiveInformation) {
+                                        $sitName = if ($sit.name) { $sit.name } elseif ($sit -is [string]) { $sit } else { "$sit" }
+                                        if (-not $SITCoverage.ContainsKey($sitName)) {
+                                            $SITCoverage[$sitName] = @{}
+                                            foreach ($wl in $WLKeys) { $SITCoverage[$sitName][$wl] = $false }
+                                        }
+                                        foreach ($wl in $coveredWL) {
+                                            if ($WLKeys -contains $wl) { $SITCoverage[$sitName][$wl] = $true }
+                                        }
+                                    }
+                                }
+                            }
+
+                            # --- Load MCCA improvement actions XML ---
+                            $XMLPath = Join-Path $PSScriptRoot 'Data\DLPImprovementActions.xml'
+                            if (-not (Test-Path $XMLPath)) {
+                                $XMLPath = Join-Path (Split-Path $PSScriptRoot) 'Private\Data\DLPImprovementActions.xml'
+                            }
+
+                            if (Test-Path $XMLPath) {
+                                [xml]$ImprovementXML = Get-Content $XMLPath -Raw -Encoding UTF8
+
+                                # Use tenant country-derived geos (set at startup from Get-MgOrganization)
+                                # Fall back to INTL-only if not available
+                                $TenantGeos = if ($script:TenantGeos -and $script:TenantGeos.Count -gt 0) {
+                                    $script:TenantGeos
+                                } else {
+                                    @('INTL')
+                                }
+
+                                Section -Style Heading4 'DLP Category Gap Analysis' {
+                                    Paragraph "The following analysis evaluates DLP coverage against Microsoft recommended categories. Each table shows relevant Sensitive Information Types (SITs) for the detected geo regions ($($TenantGeos -join ', ')) and their workload coverage status."
+                                    BlankLine
+
+                                    foreach ($action in $ImprovementXML.ImprovementActions.ActionItem) {
+                                        $category = $action.Category
+                                        $importance = $action.Importance
+
+                                        # Filter SITs to tenant-relevant geos only
+                                        $relevantSITs = $action.SITs.SIT | Where-Object {
+                                            $TenantGeos -contains $_.Geo
+                                        }
+
+                                        if (-not $relevantSITs) { continue }
+
+                                        $catCovered   = 0
+                                        $catTotal     = 0
+                                        $CatObj       = [System.Collections.ArrayList]::new()
+
+                                        foreach ($sit in $relevantSITs) {
+                                            $sitName  = $sit.'#text'
+                                            $catTotal++
+                                            $covered  = $SITCoverage.ContainsKey($sitName)
+                                            if ($covered) { $catCovered++ }
+
+                                            $wlMap = if ($covered) { $SITCoverage[$sitName] } else { @{} }
+                                            $sitInObj = [ordered] @{
+                                                'Sensitive Info Type' = $sitName
+                                                'Geo'        = $sit.Geo
+                                                'In Policy'  = if ($covered) { 'Yes' } else { 'No' }
+                                                'Exchange'   = if ($covered -and $wlMap['Exchange'])   { 'Yes' } else { 'No' }
+                                                'SharePoint' = if ($covered -and $wlMap['SharePoint']) { 'Yes' } else { 'No' }
+                                                'OneDrive'   = if ($covered -and $wlMap['OneDrive'])   { 'Yes' } else { 'No' }
+                                                'Teams'      = if ($covered -and $wlMap['Teams'])      { 'Yes' } else { 'No' }
+                                                'Endpoint'   = if ($covered -and $wlMap['Endpoint'])   { 'Yes' } else { 'No' }
+                                            }
+                                            $CatObj.Add([pscustomobject]$sitInObj) | Out-Null
+                                        }
+
+                                        $coveragePct = if ($catTotal -gt 0) { [math]::Round(($catCovered / $catTotal) * 100) } else { 0 }
+
+                                        Section -Style NOTOCHeading5 "$category ($catCovered / $catTotal covered — $coveragePct%)" {
+                                            Paragraph $importance
+                                            BlankLine
+
+                                            if ($Healthcheck -and $script:HealthCheck.Purview.DLP) {
+                                                $CatObj | Where-Object { $_.'In Policy' -eq 'No' }                                        | Set-Style -Style Critical | Out-Null
+                                                $CatObj | Where-Object { $_.'In Policy' -eq 'Yes' -and ($_.'Teams' -eq 'No' -or $_.'Endpoint' -eq 'No') } | Set-Style -Style Warning  | Out-Null
+                                            }
+
+                                            $CatTableParams = @{
+                                                Name         = "DLP Coverage - $category - $TenantId"
+                                                List         = $false
+                                                ColumnWidths = 35, 6, 9, 9, 9, 9, 8, 8, 7
+                                            }
+                                            if ($script:Report.ShowTableCaptions) { $CatTableParams['Caption'] = "- $($CatTableParams.Name)" }
+                                            $CatObj | Table @CatTableParams
+                                        }
+                                    }
+                                }
+                            } else {
+                                Write-PScriboMessage -IsWarning -Message "DLPImprovementActions.xml not found at $XMLPath — skipping category analysis." | Out-Null
+                            }
+                        } catch {
+                            Write-PScriboMessage -IsWarning -Message "DLP Category Gap Analysis: $($_.Exception.Message)" | Out-Null
+                        }
+                    }
+                    #endregion
                 }
             } else {
                 Write-PScriboMessage -Message "No DLP Policy information found for $TenantId. Disabling section." | Out-Null

@@ -204,6 +204,77 @@ function Get-AbrPurviewEDiscovery {
                 Write-PScriboMessage -IsWarning -Message "Content Search Section: $($_.Exception.Message)" | Out-Null
             }
         }
+
+        #region Advanced eDiscovery Settings (MCCA check-eDiscovery102)
+        try {
+            $AdvancedCases = Get-ComplianceCase -CaseType AdvancedEdiscovery -ErrorAction SilentlyContinue
+
+            if ($AdvancedCases) {
+                Section -Style Heading3 'Advanced eDiscovery Case Details' {
+                    Paragraph "Advanced eDiscovery provides custodian management, legal hold notifications, and built-in analytics. The following shows member assignments and hold status per case."
+                    BlankLine
+
+                    foreach ($Case in $AdvancedCases) {
+                        try {
+                            Section -Style Heading4 $Case.Name {
+                                # Members
+                                $Members = Get-ComplianceCaseMember -Case $Case.Name -ErrorAction SilentlyContinue
+                                $Holds   = Get-CaseHoldPolicy -Case $Case.Name -ErrorAction SilentlyContinue
+
+                                $_pre_Status       = $script:TextInfo.ToTitleCase($Case.Status)
+                                $_pre_MemberCount  = if ($Members) { @($Members).Count } else { 0 }
+                                $_pre_HoldCount    = if ($Holds)   { @($Holds).Count }   else { 0 }
+                                $_pre_ActiveHolds  = if ($Holds)   { @($Holds | Where-Object { $_.Enabled }).Count } else { 0 }
+                                $_pre_Created      = if ($Case.CreatedDateTime) { ([datetime]$Case.CreatedDateTime).ToString('yyyy-MM-dd') } else { 'N/A' }
+
+                                $caseInObj = [ordered] @{
+                                    'Case Name'           = $Case.Name
+                                    'Status'              = $_pre_Status
+                                    'Members Assigned'    = $_pre_MemberCount
+                                    'Total Holds'         = $_pre_HoldCount
+                                    'Active Holds'        = $_pre_ActiveHolds
+                                    'Created'             = $_pre_Created
+                                }
+                                $CaseDetailObj = [System.Collections.ArrayList]::new()
+                                $CaseDetailObj.Add([pscustomobject]$caseInObj) | Out-Null
+
+                                if ($Healthcheck -and $script:HealthCheck.Purview.EDiscovery) {
+                                    $CaseDetailObj | Where-Object { $_.'Members Assigned' -eq 0 } | Set-Style -Style Warning  | Out-Null
+                                    $CaseDetailObj | Where-Object { $_.'Active Holds' -eq 0 }     | Set-Style -Style Warning  | Out-Null
+                                }
+
+                                $CaseDetailTableParams = @{ Name = "Advanced eDiscovery - $($Case.Name)"; List = $true; ColumnWidths = 40, 60 }
+                                if ($script:Report.ShowTableCaptions) { $CaseDetailTableParams['Caption'] = "- $($CaseDetailTableParams.Name)" }
+                                $CaseDetailObj | Table @CaseDetailTableParams
+
+                                # Members table
+                                if ($Members) {
+                                    $MemObj = [System.Collections.ArrayList]::new()
+                                    foreach ($Member in $Members) {
+                                        $memInObj = [ordered] @{
+                                            'Display Name' = $Member.DisplayName
+                                            'Role'         = if ($Member.Role) { $Member.Role } else { 'Member' }
+                                            'Windows Live ID' = if ($Member.WindowsLiveID) { $Member.WindowsLiveID } else { '--' }
+                                        }
+                                        $MemObj.Add([pscustomobject]$memInObj) | Out-Null
+                                    }
+                                    $MemTableParams = @{ Name = "Case Members - $($Case.Name)"; List = $false; ColumnWidths = 35, 25, 40 }
+                                    if ($script:Report.ShowTableCaptions) { $MemTableParams['Caption'] = "- $($MemTableParams.Name)" }
+                                    $MemObj | Table @MemTableParams
+                                }
+                            }
+                        } catch {
+                            Write-PScriboMessage -IsWarning -Message "Advanced eDiscovery Case '$($Case.Name)': $($_.Exception.Message)" | Out-Null
+                        }
+                    }
+                }
+            } else {
+                Write-PScriboMessage -Message "No Advanced eDiscovery cases found for $TenantId." | Out-Null
+            }
+        } catch {
+            Write-PScriboMessage -IsWarning -Message "Advanced eDiscovery Settings Section: $($_.Exception.Message)" | Out-Null
+        }
+        #endregion
     }
 
     end {

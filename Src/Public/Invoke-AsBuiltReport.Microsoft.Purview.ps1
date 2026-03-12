@@ -205,11 +205,57 @@ function Invoke-AsBuiltReport.Microsoft.Purview {
                 $script:TenantInfo = Get-MgOrganization -ErrorAction Stop
                 $script:TenantId   = $TenantInfo.Id
                 $script:TenantName = ($TenantInfo.VerifiedDomains | Where-Object { $_.IsDefault }).Name
+
+                # Map ISO country code -> MCCA geo tags for DLP gap analysis
+                $script:TenantCountry = $TenantInfo.CountryLetterCode  # e.g. 'AU', 'US', 'GB'
+                $script:TenantGeos    = @('INTL')  # INTL always included
+                $countryToGeo = @{
+                    # Asia-Pacific
+                    'AU'='AUS'; 'NZ'='AUS'
+                    'JP'='JPN'
+                    'CN'='APC'; 'HK'='APC'; 'SG'='APC'; 'MY'='APC'; 'PH'='APC'
+                    'TW'='APC'; 'TH'='APC'; 'TR'='APC'; 'IL'='APC'; 'SA'='APC'; 'ID'='APC'
+                    'KR'='KOR'
+                    'IN'='IND'
+                    'ZA'='ZAF'
+                    # North America
+                    'US'='NAM'; 'CA'='CAN'; 'MX'='NAM'
+                    # UK
+                    'GB'='GBR'
+                    # Latin America
+                    'BR'='LAM'; 'AR'='LAM'; 'CL'='LAM'; 'CO'='LAM'; 'PE'='LAM'
+                    # Europe (all EU/EEA + associated countries)
+                    'AT'='EUR'; 'BE'='EUR'; 'BG'='EUR'; 'HR'='EUR'; 'CY'='EUR'
+                    'CZ'='EUR'; 'DK'='EUR'; 'EE'='EUR'; 'FI'='EUR'; 'FR'='FRA'
+                    'DE'='EUR'; 'GR'='EUR'; 'HU'='EUR'; 'IE'='EUR'; 'IT'='EUR'
+                    'LV'='EUR'; 'LT'='EUR'; 'LU'='EUR'; 'MT'='EUR'; 'NL'='EUR'
+                    'NO'='EUR'; 'PL'='EUR'; 'PT'='EUR'; 'RO'='EUR'; 'SK'='EUR'
+                    'SI'='EUR'; 'ES'='EUR'; 'SE'='EUR'; 'CH'='EUR'; 'UA'='EUR'
+                    'RU'='EUR'
+                }
+                if ($script:TenantCountry -and $countryToGeo.ContainsKey($script:TenantCountry)) {
+                    $script:TenantGeos += $countryToGeo[$script:TenantCountry]
+                    # France also includes EUR
+                    if ($countryToGeo[$script:TenantCountry] -eq 'FRA') { $script:TenantGeos += 'EUR' }
+                    # GBR also includes EUR (shared EU SITs)
+                    if ($countryToGeo[$script:TenantCountry] -eq 'GBR') { $script:TenantGeos += 'EUR' }
+                    # CAN also includes NAM
+                    if ($countryToGeo[$script:TenantCountry] -eq 'CAN') { $script:TenantGeos += 'NAM' }
+                } else {
+                    # Unknown country — include all geos so nothing is missed
+                    $script:TenantGeos += 'NAM','AUS','EUR','FRA','GBR','APC','JPN','CAN','IND','KOR','LAM','ZAF'
+                }
+                $script:TenantGeos = $script:TenantGeos | Sort-Object -Unique
+                Write-Host "  - Tenant country: $($script:TenantCountry) → DLP geos: $($script:TenantGeos -join ', ')" -ForegroundColor Gray
+                Write-TranscriptLog "Tenant country: $($script:TenantCountry), DLP geos: $($script:TenantGeos -join ', ')" 'INFO' 'MAIN' | Out-Null
             } else {
                 # Fall back to Get-MgContext which is always safe — no sub-module needed
                 $MgCtx = Get-MgContext -ErrorAction SilentlyContinue
-                $script:TenantId   = if ($MgCtx) { $MgCtx.TenantId } else { $System }
-                $script:TenantName = $System
+                $script:TenantId    = if ($MgCtx) { $MgCtx.TenantId } else { $System }
+                $script:TenantName  = $System
+                $script:TenantCountry = $null
+                # Without country, include the most common geos to avoid empty DLP tables
+                $script:TenantGeos  = @('INTL','NAM','AUS','EUR','FRA','GBR','APC','JPN','CAN')
             }
             Write-Host "  - Tenant: $($script:TenantName) ($($script:TenantId))" -ForegroundColor Cyan
             Write-TranscriptLog "Tenant identified: $($script:TenantName) ($($script:TenantId))" 'INFO' 'MAIN' | Out-Null
@@ -313,38 +359,6 @@ function Invoke-AsBuiltReport.Microsoft.Purview {
             #------------------------------------------------------------------#
             #  ASBUILT MODE — Standard documentation sections                  #
             #------------------------------------------------------------------#
-
-            # Prerequisites summary section (MCCA-inspired)
-            Section -Style TOC -ExcludeFromTOC 'Report Prerequisites' {
-                Paragraph "This report was generated for tenant $($script:TenantName) on $(Get-Date -Format 'yyyy-MM-dd HH:mm') UTC."
-                BlankLine
-                Paragraph "Detected administrator roles: $(if ($script:DetectedRoles.Count -gt 0) { $script:DetectedRoles -join ', ' } else { 'Unable to determine' })"
-                BlankLine
-                Paragraph "License tier: $(if ($script:HasE5License) { 'Microsoft 365 E5 — full feature access' } else { 'E3 or undetected — some sections may require E5 or E5 Compliance add-on' })"
-                if ($script:RoleWarnings.Count -gt 0 -or $script:LicenseWarnings.Count -gt 0) {
-                    BlankLine
-                    Paragraph "Notices:"
-                    foreach ($w in $script:RoleWarnings)    { Paragraph "  • $w" }
-                    foreach ($w in $script:LicenseWarnings) { Paragraph "  • $w" }
-                }
-                BlankLine
-                Paragraph "Required roles per section:"
-                $roleInObjs = [System.Collections.ArrayList]::new()
-                @(
-                    [pscustomobject]@{ Section='Information Protection / DLP';   'Minimum Role'='Compliance Administrator, Security Administrator, Security Reader' }
-                    [pscustomobject]@{ Section='Data Lifecycle / Records Mgmt';  'Minimum Role'='Compliance Administrator' }
-                    [pscustomobject]@{ Section='eDiscovery';                     'Minimum Role'='Compliance Administrator (case members require explicit assignment)' }
-                    [pscustomobject]@{ Section='Audit';                          'Minimum Role'='Compliance Administrator, Security Administrator' }
-                    [pscustomobject]@{ Section='Insider Risk Management';        'Minimum Role'='Compliance Administrator (E5 required)' }
-                    [pscustomobject]@{ Section='Communication Compliance';       'Minimum Role'='Compliance Administrator (E5 required)' }
-                ) | ForEach-Object { $null = $roleInObjs.Add($_) }
-                $roleInObjs | Table @{
-                    Name = 'Section Role Requirements'
-                    List = $false
-                    ColumnWidths = 35, 65
-                }
-            }
-            PageBreak
 
             if ($script:InfoLevel.InformationProtection -ge 1 -or $script:InfoLevel.DLP -ge 1) {
                 Write-Host '- Working on Information Protection section.'

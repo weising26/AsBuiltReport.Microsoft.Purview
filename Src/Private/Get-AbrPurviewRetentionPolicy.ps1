@@ -312,6 +312,70 @@ function Get-AbrPurviewRetentionPolicy {
             Write-PScriboMessage -IsWarning -Message "Mailbox Archiving Section: $($_.Exception.Message)" | Out-Null
         }
         #endregion
+
+        #region MRM Policies — Exchange-native Messaging Records Management (MCCA check-IG102)
+        try {
+            $MRMPolicies = Get-RetentionPolicy -ErrorAction SilentlyContinue
+
+            if ($MRMPolicies) {
+                Section -Style Heading3 'Exchange MRM Retention Policies' {
+                    Paragraph "Exchange Messaging Records Management (MRM) retention policies are Exchange-native and separate from Microsoft Purview unified retention. Many tenants run both systems in parallel during migration."
+                    BlankLine
+
+                    $MRMObj = [System.Collections.ArrayList]::new()
+                    foreach ($Policy in $MRMPolicies) {
+                        try {
+                            $Tags = @()
+                            try { $Tags = Get-RetentionPolicyTag -RetentionPolicy $Policy.Name -ErrorAction SilentlyContinue } catch {}
+                            $_pre_IsDefault  = if ($Policy.IsDefault) { 'Yes' } else { 'No' }
+                            $_pre_TagCount   = $Tags.Count
+                            $_pre_RetainAged = if ($Tags | Where-Object { $_.RetentionAction -eq 'MoveToArchive' }) { 'Yes' } else { 'No' }
+                            $_pre_Delete     = if ($Tags | Where-Object { $_.RetentionAction -eq 'DeleteAndAllowRecovery' -or $_.RetentionAction -eq 'PermanentlyDelete' }) { 'Yes' } else { 'No' }
+                            $mrmInObj = [ordered] @{
+                                'Policy Name'         = $Policy.Name
+                                'Is Default Policy'   = $_pre_IsDefault
+                                'Retention Tags'      = $_pre_TagCount
+                                'Has Archive Tag'     = $_pre_RetainAged
+                                'Has Delete Tag'      = $_pre_Delete
+                            }
+                            $MRMObj.Add([pscustomobject]$mrmInObj) | Out-Null
+                        } catch {
+                            Write-PScriboMessage -IsWarning -Message "MRM Policy '$($Policy.Name)': $($_.Exception.Message)" | Out-Null
+                        }
+                    }
+
+                    if ($Healthcheck -and $script:HealthCheck.Purview.Retention) {
+                        # Flag if only the default policy exists and no custom MRM policies are configured
+                        $CustomMRM = @($MRMPolicies | Where-Object { -not $_.IsDefault })
+                        if ($CustomMRM.Count -eq 0) {
+                            $MRMObj | Set-Style -Style Warning | Out-Null
+                        }
+                    }
+
+                    $MRMTableParams = @{ Name = "Exchange MRM Retention Policies - $TenantId"; List = $false; ColumnWidths = 36, 16, 14, 17, 17 }
+                    if ($script:Report.ShowTableCaptions) { $MRMTableParams['Caption'] = "- $($MRMTableParams.Name)" }
+                    $MRMObj | Sort-Object -Property 'Policy Name' | Table @MRMTableParams
+
+                    if ($script:InfoLevel.Retention -ge 3) {
+                        $_hasMRMCustom = (@($MRMPolicies | Where-Object { -not $_.IsDefault })).Count -gt 0
+                        Write-AbrPurviewACSCCheck -TenantId $TenantId -SectionName 'Exchange MRM Policies' -Checks @(
+                            [pscustomobject]@{
+                                ControlId   = 'ISM-1511'
+                                E8          = 'N/A'
+                                Description = 'Email lifecycle management enforced via retention policies'
+                                Check       = 'At least one custom Exchange MRM retention policy configured'
+                                Status      = if ($_hasMRMCustom) { 'Pass' } else { 'Partial' }
+                            }
+                        )
+                    }
+                }
+            } else {
+                Write-PScriboMessage -Message "No Exchange MRM Retention Policy information found for $TenantId." | Out-Null
+            }
+        } catch {
+            Write-PScriboMessage -IsWarning -Message "MRM Retention Policy Section: $($_.Exception.Message)" | Out-Null
+        }
+        #endregion
     }
 
     end {
