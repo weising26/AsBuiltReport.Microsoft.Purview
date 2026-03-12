@@ -153,9 +153,17 @@ function Get-AbrPurviewAssessment {
         $Flag_IRM_AnalyticsOn     = ($IRMSettings -and $IRMSettings.analyticsEnabled)
 
         # --- eDiscovery ---
-        $CoreCases     = @(try { Get-ComplianceCase -CaseType Core     -ErrorAction SilentlyContinue } catch { @() })
-        $AdvancedCases = @(try { Get-ComplianceCase -CaseType Advanced  -ErrorAction SilentlyContinue } catch { @() })
-        $CaseHolds     = @(try { Get-CaseHoldPolicy -ErrorAction SilentlyContinue } catch { @() })
+        $CoreCases     = @(try { Get-ComplianceCase -CaseType eDiscovery     -ErrorAction SilentlyContinue } catch { @() })
+        $AdvancedCases = @(try { Get-ComplianceCase -CaseType AdvancedEdiscovery  -ErrorAction SilentlyContinue } catch { @() })
+        $CaseHolds = @(
+            try {
+                $allCasesForHolds = @(Get-ComplianceCase -CaseType eDiscovery -ErrorAction SilentlyContinue) +
+                                    @(Get-ComplianceCase -CaseType AdvancedEdiscovery -ErrorAction SilentlyContinue)
+                foreach ($c in $allCasesForHolds) {
+                    Get-CaseHoldPolicy -Case $c.Name -ErrorAction SilentlyContinue
+                }
+            } catch { @() }
+        )
 
         $Flag_EDI_HasCoreCases     = ($CoreCases.Count -gt 0)
         $Flag_EDI_HasAdvancedCases = ($AdvancedCases.Count -gt 0)
@@ -314,15 +322,13 @@ function Get-AbrPurviewAssessment {
             }
             $ScoreObj.Add([pscustomobject]$scoreInObj) | Out-Null
 
-            $null = (& {
-            if ($HealthCheck.Purview.DLP) {
+            if ($Healthcheck -and $script:HealthCheck.Purview.DLP) {
                 if ($ScorePct -lt 50) { $ScoreObj | Set-Style -Style Critical | Out-Null }
                 elseif ($ScorePct -lt 75) { $ScoreObj | Set-Style -Style Warning | Out-Null }
             }
-            })
 
             $ScoreTableParams = @{ Name = "Assessment Score - $TenantId"; List = $true; ColumnWidths = 45, 55 }
-            $null = (& { if ($Report.ShowTableCaptions) { $ScoreTableParams['Caption'] = "- $($ScoreTableParams.Name)" } })
+            if ($script:Report.ShowTableCaptions) { $ScoreTableParams['Caption'] = "- $($ScoreTableParams.Name)" }
             $ScoreObj | Table @ScoreTableParams
             BlankLine
             #endregion
@@ -339,6 +345,7 @@ function Get-AbrPurviewAssessment {
                 $sAuto     = $sTotal - $sManual
                 $sPct      = if ($sAuto -gt 0) { [math]::Round((($sImpl + $sPartial * 0.5) / $sAuto) * 100, 0) } else { '--' }
 
+                    $_pre_Score_346 = if ($sPct -ne '--') { "$sPct%" } else { 'N/A' }
                 $summInObj = [ordered] @{
                     'Workload'                 = $section
                     'Controls'                 = $sTotal
@@ -346,20 +353,18 @@ function Get-AbrPurviewAssessment {
                     'Partial'                  = $sPartial
                     'Not Implemented'          = $sNotImpl
                     'Manual Review'            = $sManual
-                    'Score'                    = if ($sPct -ne '--') { "$sPct%" } else { 'N/A' }
+                    'Score' = $_pre_Score_346
                 }
                 $SummaryObj.Add([pscustomobject]$summInObj) | Out-Null
             }
 
-            $null = (& {
-            if ($HealthCheck.Purview.DLP) {
-                $SummaryObj | Where-Object { [int]($_.Score -replace '%','') -lt 50 -and $_.Score -ne 'N/A' } | Set-Style -Style Critical | Out-Null
-                $SummaryObj | Where-Object { [int]($_.Score -replace '%','') -lt 75 -and [int]($_.Score -replace '%','') -ge 50 } | Set-Style -Style Warning | Out-Null
+            if ($Healthcheck -and $script:HealthCheck.Purview.DLP) {
+                $SummaryObj | Where-Object { $_.Score -ne 'N/A' -and [int]($_.Score -replace '%','') -lt 50 } | Set-Style -Style Critical | Out-Null
+                $SummaryObj | Where-Object { $_.Score -ne 'N/A' -and [int]($_.Score -replace '%','') -lt 75 -and [int]($_.Score -replace '%','') -ge 50 } | Set-Style -Style Warning | Out-Null
             }
-            })
 
             $SummaryTableParams = @{ Name = "Assessment Summary by Workload - $TenantId"; List = $false; ColumnWidths = 26, 9, 12, 9, 15, 14, 15 }
-            $null = (& { if ($Report.ShowTableCaptions) { $SummaryTableParams['Caption'] = "- $($SummaryTableParams.Name)" } })
+            if ($script:Report.ShowTableCaptions) { $SummaryTableParams['Caption'] = "- $($SummaryTableParams.Name)" }
             $SummaryObj | Table @SummaryTableParams
             BlankLine
             #endregion
@@ -380,16 +385,14 @@ function Get-AbrPurviewAssessment {
                         $QObj.Add([pscustomobject]$qInObj) | Out-Null
                     }
 
-                    $null = (& {
-                    if ($HealthCheck.Purview.DLP) {
+                    if ($Healthcheck -and $script:HealthCheck.Purview.DLP) {
                         $QObj | Where-Object { $_.Status -eq 'Not Implemented' }       | Set-Style -Style Critical | Out-Null
                         $QObj | Where-Object { $_.Status -eq 'Partially Implemented' } | Set-Style -Style Warning  | Out-Null
                         $QObj | Where-Object { $_.Status -eq 'Manual Review Required'} | Set-Style -Style Info     | Out-Null
                     }
-                    })
 
                     $QTableParams = @{ Name = "$section Controls - $TenantId"; List = $false; ColumnWidths = 12, 68, 20 }
-                    $null = (& { if ($Report.ShowTableCaptions) { $QTableParams['Caption'] = "- $($QTableParams.Name)" } })
+                    if ($script:Report.ShowTableCaptions) { $QTableParams['Caption'] = "- $($QTableParams.Name)" }
                     $QObj | Table @QTableParams
                 }
             }
@@ -430,16 +433,14 @@ function Get-AbrPurviewAssessment {
                 }
 
                 if ($RemObj.Count -gt 0) {
-                    $null = (& {
-                    if ($HealthCheck.Purview.DLP) {
+                    if ($Healthcheck -and $script:HealthCheck.Purview.DLP) {
                         $RemObj | Where-Object { $_.Status -eq 'Not Implemented' }       | Set-Style -Style Critical | Out-Null
                         $RemObj | Where-Object { $_.Status -eq 'Partially Implemented' } | Set-Style -Style Warning  | Out-Null
                         $RemObj | Where-Object { $_.Status -eq 'Manual Review Required'} | Set-Style -Style Info     | Out-Null
                     }
-                    })
 
                     $RemTableParams = @{ Name = "Remediation Plan - $TenantId"; List = $false; ColumnWidths = 10, 18, 32, 16, 24 }
-                    $null = (& { if ($Report.ShowTableCaptions) { $RemTableParams['Caption'] = "- $($RemTableParams.Name)" } })
+                    if ($script:Report.ShowTableCaptions) { $RemTableParams['Caption'] = "- $($RemTableParams.Name)" }
                     $RemObj | Table @RemTableParams
                 } else {
                     Paragraph "All controls have been implemented. No remediation actions are required."

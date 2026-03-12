@@ -22,12 +22,12 @@ function Get-AbrPurviewInformationProtectionSection {
         Paragraph "The following section provides a summary of the Information Protection configuration for tenant $TenantId."
         BlankLine
 
-        if ($InfoLevel.InformationProtection -ge 1) {
+        if ($script:InfoLevel.InformationProtection -ge 1) {
             Write-Host '    - Working on Sensitivity Labels sub-section.'
             Get-AbrPurviewSensitivityLabel -TenantId $TenantId
         }
 
-        if ($InfoLevel.DLP -ge 1) {
+        if ($script:InfoLevel.DLP -ge 1) {
             Write-Host '    - Working on DLP Policies sub-section.'
             Get-AbrPurviewDLPPolicy -TenantId $TenantId
         }
@@ -54,12 +54,12 @@ function Get-AbrPurviewDataLifecycleSection {
         Paragraph "The following section provides a summary of the Data Lifecycle Management configuration for tenant $TenantId."
         BlankLine
 
-        if ($InfoLevel.Retention -ge 1) {
+        if ($script:InfoLevel.Retention -ge 1) {
             Write-Host '    - Working on Retention Policies sub-section.'
             Get-AbrPurviewRetentionPolicy -TenantId $TenantId
         }
 
-        if ($InfoLevel.Retention -ge 1) {
+        if ($script:InfoLevel.RecordManagement -ge 1) {
             Write-Host '    - Working on Records Management sub-section.'
             Get-AbrPurviewRecordManagement -TenantId $TenantId
         }
@@ -86,17 +86,17 @@ function Get-AbrPurviewRiskAndComplianceSection {
         Paragraph "The following section provides a summary of the Risk and Compliance configuration for tenant $TenantId."
         BlankLine
 
-        if ($InfoLevel.InsiderRisk -ge 1) {
+        if ($script:InfoLevel.InsiderRisk -ge 1) {
             Write-Host '    - Working on Insider Risk Management sub-section.'
             Get-AbrPurviewInsiderRisk -TenantId $TenantId
         }
 
-        if ($InfoLevel.CommunicationCompliance -ge 1) {
+        if ($script:InfoLevel.CommunicationCompliance -ge 1) {
             Write-Host '    - Working on Communication Compliance sub-section.'
             Get-AbrPurviewCommunicationCompliance -TenantId $TenantId
         }
 
-        if ($InfoLevel.ComplianceManager -ge 1) {
+        if ($script:InfoLevel.ComplianceManager -ge 1) {
             Write-Host '    - Working on Compliance Manager sub-section.'
             Get-AbrPurviewComplianceManager -TenantId $TenantId
         }
@@ -122,7 +122,7 @@ function Get-AbrPurviewAuditSection {
         Paragraph "The following section provides a summary of the Audit configuration for tenant $TenantId."
         BlankLine
 
-        if ($InfoLevel.Audit -ge 1) {
+        if ($script:InfoLevel.Audit -ge 1) {
             Write-Host '    - Working on Audit Policies sub-section.'
             Get-AbrPurviewAuditPolicy -TenantId $TenantId
         }
@@ -148,7 +148,7 @@ function Get-AbrPurviewEDiscoverySection {
         Paragraph "The following section provides a summary of the eDiscovery configuration for tenant $TenantId."
         BlankLine
 
-        if ($InfoLevel.EDiscovery -ge 1) {
+        if ($script:InfoLevel.EDiscovery -ge 1) {
             Write-Host '    - Working on eDiscovery sub-section.'
             Get-AbrPurviewEDiscovery -TenantId $TenantId
         }

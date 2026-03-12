@@ -1,23 +1,23 @@
 {
   "Email": {
     "To": null,
-    "Body": null,
-    "Port": null,
-    "UseSSL": null,
-    "Credentials": null,
+    "Server": null,
     "From": null,
-    "Server": null
+    "Port": null,
+    "Credentials": null,
+    "UseSSL": null,
+    "Body": null
   },
   "UserFolder": {
     "Path": "C:\\Users\\WSPAI\\OneDrive - Logicalis Australia\\Documents\\Scripts\\PowerShell\\AsBuilt\\AsBuiltReport.Microsoft.Purview"
   },
   "Company": {
-    "ShortName": null,
-    "FullName": null,
-    "Phone": null,
-    "Email": null,
+    "Contact": null,
     "Address": null,
-    "Contact": null
+    "Phone": null,
+    "ShortName": null,
+    "Email": null,
+    "FullName": null
   },
   "Report": {
     "Author": "WSPAI"

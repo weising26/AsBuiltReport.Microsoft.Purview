@@ -1,0 +1,14 @@
+# Personal AsBuiltReport framework config (generated per-user via New-AsBuiltReportConfig)
+AsBuiltReport.json
+
+# Dev/local install helper (not needed for published module)
+Install.ps1
+
+# Report output files
+*.docx
+*.html
+*.txt
+*.pdf
+
+# Transcript logs
+*.log

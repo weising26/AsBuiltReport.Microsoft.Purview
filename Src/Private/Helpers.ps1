@@ -1,3 +1,60 @@
+
+function Write-AbrDebugTableObject {
+    <#
+    .SYNOPSIS
+    Debug helper: logs any System.Boolean values found in a hashtable or pscustomobject
+    before it reaches PScribo. Only active when TranscriptLogPath is set.
+    Call immediately before $Obj.Add([pscustomobject]$inObj) to catch boolean sources.
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory, Position = 0)]
+        $InputObject,
+
+        [Parameter(Mandatory, Position = 1)]
+        [string]$Context
+    )
+
+    if (-not $script:TranscriptLogPath) { return }
+
+    $boolKeys = @()
+    if ($InputObject -is [System.Collections.Specialized.OrderedDictionary]) {
+        foreach ($key in $InputObject.Keys) {
+            if ($InputObject[$key] -is [System.Boolean]) {
+                $boolKeys += "$key = $($InputObject[$key])"
+            }
+        }
+    } elseif ($InputObject -is [pscustomobject]) {
+        foreach ($prop in $InputObject.PSObject.Properties) {
+            if ($prop.Value -is [System.Boolean]) {
+                $boolKeys += "$($prop.Name) = $($prop.Value)"
+            }
+        }
+    }
+
+    if ($boolKeys.Count -gt 0) {
+        $msg = "BOOLEAN DETECTED in [$Context]: $($boolKeys -join ' | ')"
+        Write-TranscriptLog $msg 'WARNING' 'BOOL_DEBUG' | Out-Null
+        Write-Host "  [BOOL_DEBUG] $msg" -ForegroundColor Magenta
+    }
+}
+
+function Invoke-Ternary {
+    <#
+    .SYNOPSIS
+    PS5.1-safe ternary operator. Returns TrueValue if Condition is truthy, else FalseValue.
+    Solves "The term 'if' is not recognized" errors that occur when if-expressions are used
+    as hashtable values inside nested PScribo Section{} scriptblocks on Windows PowerShell 5.1.
+    Usage: Invoke-Ternary ($x -gt 0) 'Yes' 'No'
+    #>
+    param (
+        [Parameter(Mandatory, Position = 0)] [AllowNull()] $Condition,
+        [Parameter(Mandatory, Position = 1)] [AllowNull()] $TrueValue,
+        [Parameter(Mandatory, Position = 2)] [AllowNull()] $FalseValue
+    )
+    if ($Condition) { $TrueValue } else { $FalseValue }
+}
+
 function Test-UserPrincipalName {
     <#
     .SYNOPSIS
@@ -122,7 +179,7 @@ function Show-AbrDebugExecutionTime {
             $script:SectionTimers[$TitleMessage].Stop()
             $Elapsed = $script:SectionTimers[$TitleMessage].Elapsed.TotalSeconds
             Write-TranscriptLog "Completed section: $TitleMessage (${Elapsed}s)" 'DEBUG' 'TIMER'
-            $script:SectionTimers.Remove($TitleMessage)
+            $null = $script:SectionTimers.Remove($TitleMessage)
         }
     }
 }
@@ -133,14 +190,21 @@ function ConvertTo-TextYN {
     [OutputType([String])]
     param (
         [Parameter(Position = 0, Mandatory)]
+        [AllowNull()]
         $TEXT
     )
+    # Explicitly handle System.Boolean objects (Exchange Online cmdlets return
+    # [System.Boolean] rather than PowerShell native bool literals, which causes
+    # PScribo to throw "Unexpected System.Boolean" warnings if not caught here).
+    if ($TEXT -is [System.Boolean]) {
+        if ($TEXT) { return 'Yes' } else { return 'No' }
+    }
     switch ($TEXT) {
         $true  { return 'Yes' }
         $false { return 'No' }
         $null  { return '--' }
         ''     { return '--' }
-        default { return $TEXT }
+        default { return [string]$TEXT }
     }
 }
 
@@ -153,6 +217,7 @@ function ConvertTo-HashToYN {
     [OutputType([System.Collections.Specialized.OrderedDictionary])]
     param (
         [Parameter(Position = 0, Mandatory)]
+        [AllowNull()]
         [AllowEmptyString()]
         [System.Collections.Specialized.OrderedDictionary] $TEXT
     )
@@ -167,4 +232,70 @@ function ConvertTo-HashToYN {
     if ($result) {
         $result
     } else { $TEXT }
+}
+function Write-AbrPurviewACSCCheck {
+    <#
+    .SYNOPSIS
+    Renders an inline ACSC ISM / Essential Eight compliance check box
+    directly beneath a report table (InfoLevel 3 only).
+    .DESCRIPTION
+        Outputs a compact two-column PScribo table showing each relevant ISM
+        control ID, a plain-English description of what is being checked,
+        and a Pass / Fail / Partial / Manual status. Colour-coded rows are
+        applied when -EnableHealthCheck is active.
+
+        Call this immediately after the Table command for each sub-section.
+        Pass in an array of [ordered] hashtables, each with keys:
+          ControlId   - e.g. 'ISM-0271'
+          E8          - e.g. 'E8 Backup ML1'  or 'N/A'
+          Description - Short description of the requirement
+          Check       - What was checked in Purview
+          Status      - 'Pass' | 'Fail' | 'Partial' | 'Manual'
+    .PARAMETER Checks
+        Array of [pscustomobject] check results.
+    .PARAMETER TenantId
+        Tenant identifier used in the table caption.
+    .PARAMETER SectionName
+        Label used in the table name, e.g. 'Sensitivity Labels'.
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [object[]]$Checks,
+
+        [Parameter(Mandatory)]
+        [string]$TenantId,
+
+        [Parameter(Mandatory)]
+        [string]$SectionName
+    )
+
+    # Only render at InfoLevel 3+
+    $MaxLevel = ($script:InfoLevel.PSObject.Properties.Value | Measure-Object -Maximum).Maximum
+    if ($MaxLevel -lt 3) { return }
+
+    $ACSCObj = [System.Collections.ArrayList]::new()
+    foreach ($c in $Checks) {
+        $ACSCObj.Add([pscustomobject][ordered]@{
+            'Control'     = "$($c.ControlId)$(if ($c.E8 -and $c.E8 -ne 'N/A') { " / $($c.E8)" })"
+            'Requirement' = $c.Description
+            'Check'       = $c.Check
+            'Status'      = $c.Status
+        }) | Out-Null
+    }
+
+    if ($Healthcheck -and $script:HealthCheck.Purview.ACSC) {
+        $ACSCObj | Where-Object { $_.Status -eq 'Fail' }    | Set-Style -Style Critical | Out-Null
+        $ACSCObj | Where-Object { $_.Status -eq 'Partial' } | Set-Style -Style Warning  | Out-Null
+        $ACSCObj | Where-Object { $_.Status -eq 'Manual' }  | Set-Style -Style Info     | Out-Null
+    }
+
+    BlankLine
+    $ACSCTableParams = @{
+        Name         = "ACSC ISM - $SectionName - $TenantId"
+        List         = $false
+        ColumnWidths = 20, 35, 30, 15
+    }
+    if ($script:Report.ShowTableCaptions) { $ACSCTableParams['Caption'] = "- $($ACSCTableParams.Name)" }
+    $ACSCObj | Table @ACSCTableParams
 }

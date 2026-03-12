@@ -1,4 +1,17 @@
 function Get-AbrPurviewDLPPolicy {
+    <#
+    .SYNOPSIS
+    Used by As Built Report to retrieve Microsoft Purview Data Loss Prevention policy information.
+    .DESCRIPTION
+        Collects and reports on DLP Compliance Policies and their associated rules
+        configured in Microsoft Purview, including coverage summary, locations,
+        conditions, actions, notifications, and incident reports.
+    .NOTES
+        Version:        0.1.0
+        Author:         Pai Wei Sing
+    .EXAMPLE
+        Get-AbrPurviewDLPPolicy -TenantId 'contoso.onmicrosoft.com'
+    #>
     [CmdletBinding()]
     param (
         [Parameter(Position = 0, Mandatory)]
@@ -55,6 +68,7 @@ function Get-AbrPurviewDLPPolicy {
                     $OutObj = [System.Collections.ArrayList]::new()
                     foreach ($Policy in $DLPPolicies) {
                         try {
+                                $_pre_Enabled_79 = if ($Policy.Enabled) { 'Yes' } else { 'No' }
                             $inObj = [ordered] @{
                                 'Name'          = $Policy.Name
                                 'Mode'          = switch ($Policy.Mode) {
@@ -62,61 +76,94 @@ function Get-AbrPurviewDLPPolicy {
                                                     'Disable'                    { 'Off (Disabled)' }
                                                     'TestWithNotifications'      { 'Test with notifications' }
                                                     'TestWithoutNotifications'   { 'Test without notifications' }
-                                                    default                      { $TextInfo.ToTitleCase($Policy.Mode) }
+                                                    default                      { $script:TextInfo.ToTitleCase($Policy.Mode) }
                                                   }
-                                'Enabled'       = $Policy.Enabled
+                                'Enabled' = $_pre_Enabled_79
                                 'Workload'      = ($Policy.Workload -join ', ')
                                 'Created'       = $Policy.WhenCreated.ToString('yyyy-MM-dd')
                                 'Last Modified' = $Policy.WhenChanged.ToString('yyyy-MM-dd')
                             }
-                            $OutObj.Add([pscustomobject](ConvertTo-HashToYN $inObj)) | Out-Null
+                            $OutObj.Add([pscustomobject]$inObj) | Out-Null
                         } catch {
                             Write-PScriboMessage -IsWarning -Message "DLP Policy '$($Policy.Name)': $($_.Exception.Message)" | Out-Null
                         }
                     }
 
-                    $null = (& {
-                    if ($HealthCheck.Purview.DLP) {
+                    if ($Healthcheck -and $script:HealthCheck.Purview.DLP) {
                         $OutObj | Where-Object { $_.'Enabled' -eq 'No' } | Set-Style -Style Critical | Out-Null
                         $OutObj | Where-Object { $_.'Mode' -notmatch 'Enforced' } | Set-Style -Style Warning | Out-Null
                     }
-                    })
 
                     $TableParams = @{ Name = "DLP Policies - $TenantId"; List = $false; ColumnWidths = 25, 18, 8, 21, 14, 14 }
-                    $null = (& { if ($Report.ShowTableCaptions) { $TableParams['Caption'] = "- $($TableParams.Name)" } })
+                    if ($script:Report.ShowTableCaptions) { $TableParams['Caption'] = "- $($TableParams.Name)" }
                     $OutObj | Sort-Object -Property 'Name' | Table @TableParams
                     #endregion
 
                     #region Coverage Summary (HealthCheck flags)
                     $CovObj = [System.Collections.ArrayList]::new()
+                        $_pre_HasEnforcedPoliciesM_104 = if ($HasEnforcedPolicies) { 'Yes' } else { 'No' }
+                        $_pre_HasEndpointDLPCovera_106 = if ($HasEndpointDlp) { 'Yes' } else { 'No' }
+                        $_pre_HasCopilotDLPCoverag_108 = if ($HasCopilotDlpPolicy) { 'Yes' } else { 'No' }
+                        $_pre_UsesUserNotification_110 = if ($UsesUserNotifications) { 'Yes' } else { 'No' }
+                        $_pre_UsesBlockingRules_112 = if ($UsesBlockingRules) { 'Yes' } else { 'No' }
+                        $_pre_CoversHealthePHIData_114 = if ($HasEphiPolicy) { 'Yes' } else { 'No' }
+                        $_pre_CoversPIIDataSSNTax_116 = if ($HasPiiPolicy) { 'Yes' } else { 'No' }
+                        $_pre_CoversFinancialDataC_118 = if ($HasFinancialPolicy) { 'Yes' } else { 'No' }
                     $covInObj = [ordered] @{
-                        'Has Enforced Policies (Mode: On)'     = $HasEnforcedPolicies
-                        'Has Endpoint DLP Coverage'            = $HasEndpointDlp
-                        'Has Copilot DLP Coverage'             = $HasCopilotDlpPolicy
-                        'Uses User Notifications'              = $UsesUserNotifications
-                        'Uses Blocking Rules'                  = $UsesBlockingRules
-                        'Covers Health / ePHI Data (HIPAA)'   = $HasEphiPolicy
-                        'Covers PII Data (SSN / Tax)'          = $HasPiiPolicy
-                        'Covers Financial Data (Credit Card)'  = $HasFinancialPolicy
-                    }
-                    $CovObj.Add([pscustomobject](ConvertTo-HashToYN $covInObj)) | Out-Null
+                        'Has Enforced Policies (Mode: On)' = $_pre_HasEnforcedPoliciesM_104
 
-                    $null = (& {
-                    if ($HealthCheck.Purview.DLP) {
+                        'Has Endpoint DLP Coverage' = $_pre_HasEndpointDLPCovera_106
+
+                        'Has Copilot DLP Coverage' = $_pre_HasCopilotDLPCoverag_108
+
+                        'Uses User Notifications' = $_pre_UsesUserNotification_110
+
+                        'Uses Blocking Rules' = $_pre_UsesBlockingRules_112
+
+                        'Covers Health / ePHI Data (HIPAA)' = $_pre_CoversHealthePHIData_114
+
+                        'Covers PII Data (SSN / Tax)' = $_pre_CoversPIIDataSSNTax_116
+
+                        'Covers Financial Data (Credit Card)' = $_pre_CoversFinancialDataC_118
+
+                    }
+                    $CovObj.Add([pscustomobject]$covInObj) | Out-Null
+
+                    if ($Healthcheck -and $script:HealthCheck.Purview.DLP) {
                         $CovObj | Where-Object { $_.'Has Enforced Policies (Mode: On)' -eq 'No' }   | Set-Style -Style Critical | Out-Null
                         $CovObj | Where-Object { $_.'Has Endpoint DLP Coverage' -eq 'No' }          | Set-Style -Style Warning  | Out-Null
                         $CovObj | Where-Object { $_.'Has Copilot DLP Coverage' -eq 'No' }           | Set-Style -Style Warning  | Out-Null
                         $CovObj | Where-Object { $_.'Uses Blocking Rules' -eq 'No' }                | Set-Style -Style Warning  | Out-Null
                     }
-                    })
 
                     $CovTableParams = @{ Name = "DLP Coverage Summary - $TenantId"; List = $true; ColumnWidths = 55, 45 }
-                    $null = (& { if ($Report.ShowTableCaptions) { $CovTableParams['Caption'] = "- $($CovTableParams.Name)" } })
+                    if ($script:Report.ShowTableCaptions) { $CovTableParams['Caption'] = "- $($CovTableParams.Name)" }
                     $CovObj | Table @CovTableParams
                     #endregion
 
+                    #region ACSC Inline Check — DLP Policies
+                    if ($script:InfoLevel.DLP -ge 3) {
+                        Write-AbrPurviewACSCCheck -TenantId $TenantId -SectionName 'DLP Policies' -Checks @(
+                            [pscustomobject]@{
+                                ControlId   = 'ISM-1550'
+                                E8          = 'N/A'
+                                Description = 'DLP controls preventing unauthorised disclosure of sensitive data'
+                                Check       = 'At least one DLP policy in enforced (Enable) mode'
+                                Status      = if ($HasEnforcedPolicies) { 'Pass' } elseif ($DLPPolicies.Count -gt 0) { 'Partial' } else { 'Fail' }
+                            }
+                            [pscustomobject]@{
+                                ControlId   = 'ISM-1550'
+                                E8          = 'N/A'
+                                Description = 'DLP rules actively block access to sensitive content'
+                                Check       = 'At least one DLP rule with BlockAccess action configured'
+                                Status      = if ($UsesBlockingRules) { 'Pass' } else { 'Fail' }
+                            }
+                        )
+                    }
+                    #endregion
+
                     #region Per-Policy Detail Sections (InfoLevel 2+)
-                    if ($InfoLevel.DLP -ge 2) {
+                    if ($script:InfoLevel.DLP -ge 2) {
                         foreach ($Policy in ($DLPPolicies | Sort-Object Name)) {
                             try {
                                 # Fetch rules for this policy
@@ -124,39 +171,50 @@ function Get-AbrPurviewDLPPolicy {
 
                                 Section -Style Heading4 $Policy.Name {
 
-                                    Paragraph "Logicalis implemented the $($Policy.Name) DLP policy with the following configuration."
+                                    Paragraph "The $($Policy.Name) DLP policy is configured as follows."
                                     BlankLine
 
                                     #region Policy Details
                                     $DetObj = [System.Collections.ArrayList]::new()
+                                        $_pre_Whatinfodoyouwanttop_179 = if ($Policy.Workload) { ($Policy.Workload -join ', ') } else { '--' }
+                                        $_pre_Description_181 = if ($Policy.Comment) { $Policy.Comment } else { '--' }
                                     $detInObj = [ordered] @{
-                                        'What info do you want to protect?' = if ($Policy.Workload) { ($Policy.Workload -join ', ') } else { '--' }
+                                        'What info do you want to protect?' = $_pre_Whatinfodoyouwanttop_179
                                         'Name'                              = $Policy.Name
-                                        'Description'                       = if ($Policy.Comment) { $Policy.Comment } else { '--' }
+                                        'Description' = $_pre_Description_181
                                         'Priority'                          = $Policy.Priority
                                     }
-                                    $DetObj.Add([pscustomobject](ConvertTo-HashToYN $detInObj)) | Out-Null
+                                    $DetObj.Add([pscustomobject]$detInObj) | Out-Null
                                     $DetTableParams = @{ Name = "Policy Details - $($Policy.Name)"; List = $true; ColumnWidths = 40, 60 }
-                                    $null = (& { if ($Report.ShowTableCaptions) { $DetTableParams['Caption'] = "- $($DetTableParams.Name)" } })
+                                    if ($script:Report.ShowTableCaptions) { $DetTableParams['Caption'] = "- $($DetTableParams.Name)" }
                                     $DetObj | Table @DetTableParams
                                     #endregion
 
                                     #region Locations
+                                    $locExchange   = if ($Policy.ExchangeLocation)             { "Checked ($(if ($Policy.ExchangeLocation.Name -contains 'All') { 'All groups' } else { ($Policy.ExchangeLocation.Name -join ', ') }))" }             else { 'Not checked' }
+                                    $locSharePoint = if ($Policy.SharePointLocation)           { "Checked ($(if ($Policy.SharePointLocation.Name -contains 'All') { 'All sites' } else { ($Policy.SharePointLocation.Name -join ', ') }))" }           else { 'Not checked' }
+                                    $locOneDrive   = if ($Policy.OneDriveLocation)             { "Checked ($(if ($Policy.OneDriveLocation.Name -contains 'All') { 'All accounts' } else { ($Policy.OneDriveLocation.Name -join ', ') }))" }             else { 'Not checked' }
+                                    $locTeams      = if ($Policy.TeamsLocation)                { "Checked ($(if ($Policy.TeamsLocation.Name -contains 'All') { 'All teams' } else { ($Policy.TeamsLocation.Name -join ', ') }))" }                     else { 'Not checked' }
+                                    $locDevices    = if ($Policy.EndpointDlpLocation)          { "Checked ($(if ($Policy.EndpointDlpLocation.Name -contains 'All') { 'All devices' } else { ($Policy.EndpointDlpLocation.Name -join ', ') }))" }       else { 'Not checked' }
                                     $LocObj = [System.Collections.ArrayList]::new()
+                                        $_pre_Onpremisesrepositori_205 = if ($Policy.OnPremisesScannerDlpLocation) { 'Checked' } else { 'Not checked' }
+                                        $_pre_FabricandPowerBIwork_206 = if ($Policy.PowerBIDlpLocation) { 'Checked' } else { 'N/A' }
+                                        $_pre_Microsoft365Copilota_207 = if ($Policy.AdaptiveScopes) { 'Checked' } else { 'N/A' }
+                                        $_pre_Managedcloudapps_208 = if ($Policy.ThirdPartyAppDlpLocation) { 'Checked' } else { 'N/A' }
                                     $locInObj = [ordered] @{
-                                        'Exchange email'                         = if ($Policy.ExchangeLocation)             { "Checked ($( if ($Policy.ExchangeLocation.Name -contains 'All') { 'All groups' } else { ($Policy.ExchangeLocation.Name -join ', ') } ))" }             else { 'Not checked' }
-                                        'SharePoint sites'                       = if ($Policy.SharePointLocation)           { "Checked ($( if ($Policy.SharePointLocation.Name -contains 'All') { 'All sites' } else { ($Policy.SharePointLocation.Name -join ', ') } ))" }           else { 'Not checked' }
-                                        'OneDrive accounts'                      = if ($Policy.OneDriveLocation)             { "Checked ($( if ($Policy.OneDriveLocation.Name -contains 'All') { 'All accounts' } else { ($Policy.OneDriveLocation.Name -join ', ') } ))" }             else { 'Not checked' }
-                                        'Teams and channel messages'             = if ($Policy.TeamsLocation)                { "Checked ($( if ($Policy.TeamsLocation.Name -contains 'All') { 'All teams' } else { ($Policy.TeamsLocation.Name -join ', ') } ))" }                     else { 'Not checked' }
-                                        'Devices'                                = if ($Policy.EndpointDlpLocation)          { "Checked ($( if ($Policy.EndpointDlpLocation.Name -contains 'All') { 'All devices' } else { ($Policy.EndpointDlpLocation.Name -join ', ') } ))" }       else { 'Not checked' }
-                                        'On-premises repositories'               = if ($Policy.OnPremisesScannerDlpLocation) { 'Checked' } else { 'Not checked' }
-                                        'Fabric and Power BI workspaces'         = if ($Policy.PowerBIDlpLocation)           { 'Checked' } else { 'N/A' }
-                                        'Microsoft 365 Copilot and Copilot Chat' = if ($Policy.AdaptiveScopes)               { 'Checked' } else { 'N/A' }
-                                        'Managed cloud apps'                     = if ($Policy.ThirdPartyAppDlpLocation)     { 'Checked' } else { 'N/A' }
+                                        'Exchange email'                         = $locExchange
+                                        'SharePoint sites'                       = $locSharePoint
+                                        'OneDrive accounts'                      = $locOneDrive
+                                        'Teams and channel messages'             = $locTeams
+                                        'Devices'                                = $locDevices
+                                        'On-premises repositories' = $_pre_Onpremisesrepositori_205
+                                        'Fabric and Power BI workspaces' = $_pre_FabricandPowerBIwork_206
+                                        'Microsoft 365 Copilot and Copilot Chat' = $_pre_Microsoft365Copilota_207
+                                        'Managed cloud apps' = $_pre_Managedcloudapps_208
                                     }
-                                    $LocObj.Add([pscustomobject](ConvertTo-HashToYN $locInObj)) | Out-Null
+                                    $LocObj.Add([pscustomobject]$locInObj) | Out-Null
                                     $LocTableParams = @{ Name = "Locations - $($Policy.Name)"; List = $true; ColumnWidths = 40, 60 }
-                                    $null = (& { if ($Report.ShowTableCaptions) { $LocTableParams['Caption'] = "- $($LocTableParams.Name)" } })
+                                    if ($script:Report.ShowTableCaptions) { $LocTableParams['Caption'] = "- $($LocTableParams.Name)" }
                                     $LocObj | Table @LocTableParams
                                     #endregion
 
@@ -215,7 +273,7 @@ function Get-AbrPurviewDLPPolicy {
                                                     $ActionParts = [System.Collections.ArrayList]::new()
 
                                                     if ($Rule.BlockAccess) {
-                                                        $scope = if ($Rule.BlockAccessScope) { " ($($TextInfo.ToTitleCase($Rule.BlockAccessScope)))" } else { '' }
+                                                        $scope = if ($Rule.BlockAccessScope) { " ($($script:TextInfo.ToTitleCase($Rule.BlockAccessScope)))" } else { '' }
                                                         $ActionParts.Add("Block Access$scope") | Out-Null
                                                     }
                                                     if ($Rule.SetHeader) {
@@ -247,7 +305,7 @@ function Get-AbrPurviewDLPPolicy {
                                                         'Conditions' = $ConditionsDisplay
                                                         'Actions'    = $ActionsDisplay
                                                     }
-                                                    $RuleObj.Add([pscustomobject]($ruleInObj)) | Out-Null
+                                                    $RuleObj.Add([pscustomobject]$ruleInObj) | Out-Null
                                                 } catch {
                                                     Write-PScriboMessage -IsWarning -Message "DLP Rule '$($Rule.Name)': $($_.Exception.Message)" | Out-Null
                                                 }
@@ -255,7 +313,7 @@ function Get-AbrPurviewDLPPolicy {
 
                                             if ($RuleObj.Count -gt 0) {
                                                 $RuleTableParams = @{ Name = "Policy Settings - $($Policy.Name)"; List = $false; ColumnWidths = 28, 36, 36 }
-                                                $null = (& { if ($Report.ShowTableCaptions) { $RuleTableParams['Caption'] = "- $($RuleTableParams.Name)" } })
+                                                if ($script:Report.ShowTableCaptions) { $RuleTableParams['Caption'] = "- $($RuleTableParams.Name)" }
                                                 $RuleObj | Table @RuleTableParams
                                             }
                                         }
@@ -266,38 +324,43 @@ function Get-AbrPurviewDLPPolicy {
 
                                     #region User Notifications
                                     $NotifObj = [System.Collections.ArrayList]::new()
+                                        $_pre_Usenotificationstoin_327 = if ($DLPRules | Where-Object { $_.NotifyUser }) { 'On' } else { 'Off' }
                                     $notifInObj = [ordered] @{
-                                        'Use notifications to inform your users and help educate them on the proper use of sensitive info.' = if ($DLPRules | Where-Object { $_.NotifyUser }) { 'On' } else { 'Off' }
+                                        'Use notifications to inform your users and help educate them on the proper use of sensitive info.' = $_pre_Usenotificationstoin_327
                                     }
-                                    $NotifObj.Add([pscustomobject](ConvertTo-HashToYN $notifInObj)) | Out-Null
+                                    $NotifObj.Add([pscustomobject]$notifInObj) | Out-Null
                                     $NotifTableParams = @{ Name = "User Notifications - $($Policy.Name)"; List = $true; ColumnWidths = 70, 30 }
-                                    $null = (& { if ($Report.ShowTableCaptions) { $NotifTableParams['Caption'] = "- $($NotifTableParams.Name)" } })
+                                    if ($script:Report.ShowTableCaptions) { $NotifTableParams['Caption'] = "- $($NotifTableParams.Name)" }
                                     $NotifObj | Table @NotifTableParams
                                     #endregion
 
                                     #region Incident Reports
                                     $IncObj = [System.Collections.ArrayList]::new()
                                     $FirstRule = $DLPRules | Where-Object { $_.ReportSeverityLevel } | Select-Object -First 1
+                                    $firstRuleSev = if ($FirstRule) { $script:TextInfo.ToTitleCase($FirstRule.ReportSeverityLevel) } else { 'Low' }
+                                        $_pre_Sendanalerttoadminsw_342 = if ($DLPRules | Where-Object { $_.AlertProperties }) { 'On' } else { 'Off' }
+                                        $_pre_Useemailincidentrepo_343 = if ($DLPRules | Where-Object { $_.GenerateIncidentReport }) { 'On' } else { 'Off' }
                                     $incInObj = [ordered] @{
-                                        'Use this severity level in admin alerts and reports:' = if ($FirstRule) { $TextInfo.ToTitleCase($FirstRule.ReportSeverityLevel) } else { 'Low' }
-                                        'Send an alert to admins when a rule match occurs.'    = if ($DLPRules | Where-Object { $_.AlertProperties }) { 'On' } else { 'Off' }
-                                        'Use email incident reports to notify you when a policy match occurs.' = if ($DLPRules | Where-Object { $_.GenerateIncidentReport }) { 'On' } else { 'Off' }
+                                        'Use this severity level in admin alerts and reports:' = $firstRuleSev
+                                        'Send an alert to admins when a rule match occurs.' = $_pre_Sendanalerttoadminsw_342
+                                        'Use email incident reports to notify you when a policy match occurs.' = $_pre_Useemailincidentrepo_343
                                     }
-                                    $IncObj.Add([pscustomobject](ConvertTo-HashToYN $incInObj)) | Out-Null
+                                    $IncObj.Add([pscustomobject]$incInObj) | Out-Null
                                     $IncTableParams = @{ Name = "Incident Reports - $($Policy.Name)"; List = $true; ColumnWidths = 70, 30 }
-                                    $null = (& { if ($Report.ShowTableCaptions) { $IncTableParams['Caption'] = "- $($IncTableParams.Name)" } })
+                                    if ($script:Report.ShowTableCaptions) { $IncTableParams['Caption'] = "- $($IncTableParams.Name)" }
                                     $IncObj | Table @IncTableParams
                                     #endregion
 
                                     #region Additional Options
                                     $AddObj = [System.Collections.ArrayList]::new()
                                     $StopProcessing = $DLPRules | Where-Object { $_.StopPolicyProcessing } | Select-Object -First 1
+                                    $_preStopProc = if ($StopProcessing) { 'Checked' } else { 'Not checked' }
                                     $addInObj = [ordered] @{
-                                        "If there's a match for this rule, stop processing additional DLP policies and rules." = if ($StopProcessing) { 'Checked' } else { 'Not checked' }
+                                        "If there's a match for this rule, stop processing additional DLP policies and rules." = $_preStopProc
                                     }
-                                    $AddObj.Add([pscustomobject](ConvertTo-HashToYN $addInObj)) | Out-Null
+                                    $AddObj.Add([pscustomobject]$addInObj) | Out-Null
                                     $AddTableParams = @{ Name = "Additional Options - $($Policy.Name)"; List = $true; ColumnWidths = 70, 30 }
-                                    $null = (& { if ($Report.ShowTableCaptions) { $AddTableParams['Caption'] = "- $($AddTableParams.Name)" } })
+                                    if ($script:Report.ShowTableCaptions) { $AddTableParams['Caption'] = "- $($AddTableParams.Name)" }
                                     $AddObj | Table @AddTableParams
                                     #endregion
 
@@ -309,12 +372,12 @@ function Get-AbrPurviewDLPPolicy {
                                             'Disable'                    { 'Off (Disabled)' }
                                             'TestWithNotifications'      { 'Test mode with notifications' }
                                             'TestWithoutNotifications'   { 'Test mode without notifications' }
-                                            default                      { $TextInfo.ToTitleCase($Policy.Mode) }
+                                            default                      { $script:TextInfo.ToTitleCase($Policy.Mode) }
                                         }
                                     }
-                                    $ModeObj.Add([pscustomobject](ConvertTo-HashToYN $modeInObj)) | Out-Null
+                                    $ModeObj.Add([pscustomobject]$modeInObj) | Out-Null
                                     $ModeTableParams = @{ Name = "Policy Mode - $($Policy.Name)"; List = $true; ColumnWidths = 40, 60 }
-                                    $null = (& { if ($Report.ShowTableCaptions) { $ModeTableParams['Caption'] = "- $($ModeTableParams.Name)" } })
+                                    if ($script:Report.ShowTableCaptions) { $ModeTableParams['Caption'] = "- $($ModeTableParams.Name)" }
                                     $ModeObj | Table @ModeTableParams
                                     #endregion
 

@@ -18,7 +18,7 @@
     Author            = 'Pai Wei Sing'
 
     # Company or vendor of this module
-    CompanyName       = 'Logicalis Australia'
+    CompanyName       = ''
 
     # Copyright statement for this module
     Copyright         = '(c) 2026 Pai Wei Sing. All rights reserved.'

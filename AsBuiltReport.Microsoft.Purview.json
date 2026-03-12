@@ -13,31 +13,37 @@
     },
     "Options": {
         "ShowDefinitionInfo": false,
-        "UserPrincipalName": "admin@M365x29024066.onmicrosoft.com",
+        "UserPrincipalName": "",
         "ReportType": "Both",
-        "_comment_ReportType": "AsBuilt = standard documentation | Assessment = 90+ POA controls | Both = AsBuilt documentation followed by Assessment"
+        "_comment_ReportType": "AsBuilt = standard documentation | Assessment = POA controls only | Both = AsBuilt + POA assessment. ACSC ISM summary is triggered independently by InfoLevel >= 3 and always appears before the POA section.",
+        "KeepConnected": true,
+        "TranscriptPath": "C:\\Reports\\Purview_Transcript.log",
+        "_comment_TranscriptPath": "Optional. Full path to a log file, e.g. C:\\Reports\\Purview_Debug.log. Leave blank to disable. The log captures all INFO/SUCCESS/WARNING/ERROR events plus PScribo document warnings."
     },
     "InfoLevel": {
-        "_comment_": "0 = Disabled, 1 = Summary, 2 = Detailed",
-        "InformationProtection": 2,
-        "DLP": 2,
-        "Retention": 2,
-        "EDiscovery": 2,
-        "Audit": 2,
-        "InsiderRisk": 2,
-        "CommunicationCompliance": 2,
-        "ComplianceManager": 2
+        "_comment_": "0 = Disabled | 1 = Summary | 2 = Detailed | 3 = Detailed + ACSC ISM / Essential Eight compliance summary appended after all AsBuilt sections. Set any section to 3 to trigger the ACSC section.",
+        "InformationProtection": 3,
+        "DLP": 3,
+        "Retention": 3,
+        "RecordManagement": 3,
+        "EDiscovery": 3,
+        "Audit": 3,
+        "InsiderRisk": 3,
+        "CommunicationCompliance": 3,
+        "ComplianceManager": 3
     },
     "HealthCheck": {
         "Purview": {
             "DLP": true,
             "InformationProtection": true,
             "Retention": true,
+            "RecordManagement": true,
             "EDiscovery": true,
             "Audit": true,
             "InsiderRisk": true,
             "CommunicationCompliance": true,
-            "ComplianceManager": true
+            "ComplianceManager": true,
+            "ACSC": true
         }
     }
 }

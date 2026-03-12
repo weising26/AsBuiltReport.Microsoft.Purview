@@ -110,11 +110,52 @@ function Invoke-AsBuiltReport.Microsoft.Purview {
     $script:Report        = $ReportConfig.Report
     $script:InfoLevel     = $ReportConfig.InfoLevel
     $script:Options       = $ReportConfig.Options
+    $script:HealthCheck   = $ReportConfig.HealthCheck
     $script:TextInfo      = (Get-Culture).TextInfo
     $script:SectionTimers = [System.Collections.Generic.Dictionary[string,object]]::new()
 
-    # Optional: enable transcript log file output
-    # $script:TranscriptLogPath = "C:\Reports\PurviewReport_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
+    # Transcript log — enabled when Options.TranscriptPath is set in the report config JSON.
+    # Generates a timestamped log file capturing all INFO/SUCCESS/WARNING/ERROR events
+    # plus PScribo document warnings, useful for troubleshooting without needing to
+    # copy/paste console output.
+    if ($script:Options.TranscriptPath -and $script:Options.TranscriptPath.Trim() -ne '') {
+        # Expand the path and create the directory if needed
+        $script:TranscriptLogPath = $script:Options.TranscriptPath.Trim()
+        $logDir = Split-Path $script:TranscriptLogPath -Parent
+        if ($logDir -and -not (Test-Path $logDir)) {
+            New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+        }
+        # Write a header so it's clear when the session started
+        $header = @"
+================================================================================
+  AsBuiltReport.Microsoft.Purview — Diagnostic Transcript
+  Started : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+  Host    : $($env:COMPUTERNAME)
+  User    : $($env:USERNAME)
+================================================================================
+"@
+        Set-Content -Path $script:TranscriptLogPath -Value $header -Encoding UTF8
+        Write-Host "  - Transcript log: $script:TranscriptLogPath" -ForegroundColor Cyan
+
+        # Hook into PScribo's Write-PScriboMessage so WARNING lines from the
+        # document renderer (including "Unexpected System.Boolean" and other
+        # internal errors) are captured to the log file automatically.
+        # PScribo writes warnings via Write-Warning, so we redirect the
+        # WarningVariable stream at the Section/Table level isn't practical —
+        # instead we register a custom warning handler using Set-PSDebug isn't right either.
+        # The most reliable approach: wrap the entire report generation in a
+        # transcript using Start-Transcript which captures everything including warnings.
+        try {
+            Start-Transcript -Path ($script:TranscriptLogPath -replace '\.log$', '_console.log') `
+                -Append -Force -ErrorAction SilentlyContinue | Out-Null
+            $script:TranscriptStarted = $true
+        } catch {
+            $script:TranscriptStarted = $false
+        }
+    } else {
+        $script:TranscriptLogPath  = $null
+        $script:TranscriptStarted  = $false
+    }
 
     #---------------------------------------------------------------------------------------------#
     #                                   Disclaimer (HealthCheck)                                  #
@@ -137,8 +178,8 @@ function Invoke-AsBuiltReport.Microsoft.Purview {
 
         #region Resolve UPN
         $ResolvedUPN = $null
-        if ($Options.UserPrincipalName -and (Test-UserPrincipalName -UserPrincipalName $Options.UserPrincipalName)) {
-            $ResolvedUPN = $Options.UserPrincipalName
+        if ($script:Options.UserPrincipalName -and (Test-UserPrincipalName -UserPrincipalName $script:Options.UserPrincipalName)) {
+            $ResolvedUPN = $script:Options.UserPrincipalName
         } elseif ($Credential -and (Test-UserPrincipalName -UserPrincipalName $Credential.UserName)) {
             $ResolvedUPN = $Credential.UserName
         } else {
@@ -180,11 +221,90 @@ function Invoke-AsBuiltReport.Microsoft.Purview {
         #endregion
 
         #---------------------------------------------------------------------------------------------#
+        #                       Pre-flight: Role & License Check (MCCA-inspired)                     #
+        #---------------------------------------------------------------------------------------------#
+        # Checks Entra roles and licensing before generating the report.
+        # Warns if sections will have limited data. Does NOT block report generation.
+        # Role requirements sourced from MCCA (github.com/OfficeDev/MCCA) role table.
+        Write-Host '  - Checking user roles and licensing...'
+        try {
+            $script:RoleWarnings   = [System.Collections.ArrayList]::new()
+            $script:LicenseWarnings = [System.Collections.ArrayList]::new()
+            $script:DetectedRoles  = @()
+            $script:HasE5License   = $false
+
+            # Get Entra roles for current user via Graph
+            $MgCtxAccount = (Get-MgContext -ErrorAction SilentlyContinue).Account
+            if ($MgCtxAccount) {
+                $RoleResp = Invoke-MgGraphRequest `
+                    -Uri "https://graph.microsoft.com/v1.0/users/$MgCtxAccount/transitiveMemberOf/microsoft.graph.directoryRole" `
+                    -Method GET -ErrorAction SilentlyContinue -SkipHttpErrorCheck
+                if ($RoleResp -and -not $RoleResp.error -and $RoleResp.value) {
+                    $script:DetectedRoles = $RoleResp.value.displayName
+                }
+            }
+
+            # Role tier assessment (from MCCA role table)
+            $FullAccessRoles  = @('Global Administrator','Compliance Administrator','Compliance Data Administrator')
+            $PartialRoles     = @('Security Administrator','Security Reader','Security Operator','Global Reader')
+            $HasFullAccess    = ($script:DetectedRoles | Where-Object { $FullAccessRoles -contains $_ }).Count -gt 0
+            $HasPartialAccess = ($script:DetectedRoles | Where-Object { $PartialRoles    -contains $_ }).Count -gt 0
+
+            if ($script:DetectedRoles.Count -gt 0) {
+                Write-Host "    Detected roles: $($script:DetectedRoles -join ', ')" -ForegroundColor Gray
+                Write-TranscriptLog "Detected Entra roles: $($script:DetectedRoles -join ', ')" 'INFO' 'PREFLIGHT' | Out-Null
+                if (-not $HasFullAccess -and -not $HasPartialAccess) {
+                    $msg = "No recognised compliance role detected. Some sections may be empty. Recommended: Compliance Administrator or Global Administrator."
+                    Write-Host "    WARNING: $msg" -ForegroundColor Yellow
+                    Write-TranscriptLog $msg 'WARNING' 'PREFLIGHT' | Out-Null
+                    $null = $script:RoleWarnings.Add($msg)
+                } elseif (-not $HasFullAccess) {
+                    $msg = "Partial-access role detected. Insider Risk, Communication Compliance and eDiscovery case details may be limited. Full access requires Compliance Administrator."
+                    Write-Host "    NOTE: $msg" -ForegroundColor Yellow
+                    Write-TranscriptLog $msg 'WARNING' 'PREFLIGHT' | Out-Null
+                    $null = $script:RoleWarnings.Add($msg)
+                } else {
+                    Write-Host "    Role check: OK ($( ($script:DetectedRoles | Where-Object { $FullAccessRoles -contains $_ }) -join ', '))" -ForegroundColor Green
+                    Write-TranscriptLog "Role check passed." 'SUCCESS' 'PREFLIGHT' | Out-Null
+                }
+            } else {
+                Write-Host "    Could not retrieve role assignments." -ForegroundColor Gray
+            }
+
+            # License check via Graph
+            $SkuResp = Invoke-MgGraphRequest -Uri "https://graph.microsoft.com/v1.0/subscribedSkus" `
+                -Method GET -ErrorAction SilentlyContinue -SkipHttpErrorCheck
+            if ($SkuResp -and -not $SkuResp.error -and $SkuResp.value) {
+                $Skus = $SkuResp.value
+                $E5Skus = $Skus | Where-Object {
+                    $_.skuPartNumber -match 'SPE_E5|COMPLIANCE_E5|M365_E5|ENTERPRISEPREMIUM|Microsoft_365_E5'
+                }
+                $script:HasE5License = $E5Skus.Count -gt 0
+                if ($script:HasE5License) {
+                    Write-Host "    License check: E5 detected — all sections available." -ForegroundColor Green
+                    Write-TranscriptLog "E5 license confirmed: $($E5Skus.skuPartNumber -join ', ')" 'SUCCESS' 'PREFLIGHT' | Out-Null
+                } else {
+                    $E3Skus = $Skus | Where-Object { $_.skuPartNumber -match 'SPE_E3|ENTERPRISEPACK|Microsoft_365_E3' }
+                    $licMsg = if ($E3Skus) {
+                        "E3 license detected ($($E3Skus.skuPartNumber -join ', ')). Insider Risk Management, Communication Compliance and Advanced eDiscovery require E5 or M365 E5 Compliance add-on."
+                    } else {
+                        "License tier unknown. Insider Risk, Communication Compliance and Advanced eDiscovery may require E5 or E5 Compliance add-on."
+                    }
+                    Write-Host "    NOTE: $licMsg" -ForegroundColor Yellow
+                    Write-TranscriptLog $licMsg 'WARNING' 'PREFLIGHT' | Out-Null
+                    $null = $script:LicenseWarnings.Add($licMsg)
+                }
+            }
+        } catch {
+            Write-TranscriptLog "Pre-flight check skipped (non-fatal): $($_.Exception.Message)" 'WARNING' 'PREFLIGHT' | Out-Null
+        }
+
+        #---------------------------------------------------------------------------------------------#
         #                                     Report Sections                                         #
         #---------------------------------------------------------------------------------------------#
 
         # Determine report mode from Options
-        $ReportType = if ($Options.ReportType) { $Options.ReportType.Trim() } else { 'AsBuilt' }
+        $ReportType = if ($script:Options.ReportType) { $script:Options.ReportType.Trim() } else { 'AsBuilt' }
         Write-Host "  - Report type: $ReportType" -ForegroundColor Cyan
         Write-TranscriptLog "Report type: $ReportType" 'INFO' 'MAIN' | Out-Null
         
@@ -194,26 +314,60 @@ function Invoke-AsBuiltReport.Microsoft.Purview {
             #  ASBUILT MODE — Standard documentation sections                  #
             #------------------------------------------------------------------#
 
-            if ($InfoLevel.InformationProtection -ge 1 -or $InfoLevel.DLP -ge 1) {
+            # Prerequisites summary section (MCCA-inspired)
+            Section -Style TOC -ExcludeFromTOC 'Report Prerequisites' {
+                Paragraph "This report was generated for tenant $($script:TenantName) on $(Get-Date -Format 'yyyy-MM-dd HH:mm') UTC."
+                BlankLine
+                Paragraph "Detected administrator roles: $(if ($script:DetectedRoles.Count -gt 0) { $script:DetectedRoles -join ', ' } else { 'Unable to determine' })"
+                BlankLine
+                Paragraph "License tier: $(if ($script:HasE5License) { 'Microsoft 365 E5 — full feature access' } else { 'E3 or undetected — some sections may require E5 or E5 Compliance add-on' })"
+                if ($script:RoleWarnings.Count -gt 0 -or $script:LicenseWarnings.Count -gt 0) {
+                    BlankLine
+                    Paragraph "Notices:"
+                    foreach ($w in $script:RoleWarnings)    { Paragraph "  • $w" }
+                    foreach ($w in $script:LicenseWarnings) { Paragraph "  • $w" }
+                }
+                BlankLine
+                Paragraph "Required roles per section:"
+                $roleInObjs = [System.Collections.ArrayList]::new()
+                @(
+                    [pscustomobject]@{ Section='Information Protection / DLP';   'Minimum Role'='Compliance Administrator, Security Administrator, Security Reader' }
+                    [pscustomobject]@{ Section='Data Lifecycle / Records Mgmt';  'Minimum Role'='Compliance Administrator' }
+                    [pscustomobject]@{ Section='eDiscovery';                     'Minimum Role'='Compliance Administrator (case members require explicit assignment)' }
+                    [pscustomobject]@{ Section='Audit';                          'Minimum Role'='Compliance Administrator, Security Administrator' }
+                    [pscustomobject]@{ Section='Insider Risk Management';        'Minimum Role'='Compliance Administrator (E5 required)' }
+                    [pscustomobject]@{ Section='Communication Compliance';       'Minimum Role'='Compliance Administrator (E5 required)' }
+                ) | ForEach-Object { $null = $roleInObjs.Add($_) }
+                $roleInObjs | Table @{
+                    Name = 'Section Role Requirements'
+                    List = $false
+                    ColumnWidths = 35, 65
+                }
+            }
+            PageBreak
+
+            if ($script:InfoLevel.InformationProtection -ge 1 -or $script:InfoLevel.DLP -ge 1) {
                 Write-Host '- Working on Information Protection section.'
                 Get-AbrPurviewInformationProtectionSection -TenantId $script:TenantName
             }
-            if ($InfoLevel.Retention -ge 1) {
+            if ($script:InfoLevel.Retention -ge 1 -or $script:InfoLevel.RecordManagement -ge 1) {
                 Write-Host '- Working on Data Lifecycle Management section.'
                 Get-AbrPurviewDataLifecycleSection -TenantId $script:TenantName
             }
-            if ($InfoLevel.EDiscovery -ge 1) {
+            if ($script:InfoLevel.EDiscovery -ge 1) {
                 Write-Host '- Working on eDiscovery section.'
                 Get-AbrPurviewEDiscoverySection -TenantId $script:TenantName
             }
-            if ($InfoLevel.Audit -ge 1) {
+            if ($script:InfoLevel.Audit -ge 1) {
                 Write-Host '- Working on Audit section.'
                 Get-AbrPurviewAuditSection -TenantId $script:TenantName
             }
-            if ($InfoLevel.InsiderRisk -ge 1 -or $InfoLevel.CommunicationCompliance -ge 1 -or $InfoLevel.ComplianceManager -ge 1) {
+            if ($script:InfoLevel.InsiderRisk -ge 1 -or $script:InfoLevel.CommunicationCompliance -ge 1 -or $script:InfoLevel.ComplianceManager -ge 1) {
                 Write-Host '- Working on Risk and Compliance section.'
                 Get-AbrPurviewRiskAndComplianceSection -TenantId $script:TenantName
             }
+
+        } # end AsBuilt sections
 
         if ($ReportType -eq 'Assessment' -or $ReportType -eq 'Both') {
 
@@ -222,10 +376,8 @@ function Invoke-AsBuiltReport.Microsoft.Purview {
             #------------------------------------------------------------------#
             Write-Host '- Working on Purview Optimization Assessment section.'
             Get-AbrPurviewAssessment -TenantId $script:TenantName
-        }
 
-        
-        } # end ReportType branch
+        } # end Assessment section
 
         #---------------------------------------------------------------------------------------------#
         #                              Clean Up Connections                                           #
@@ -234,7 +386,18 @@ function Invoke-AsBuiltReport.Microsoft.Purview {
         Write-Host "- Finished report generation for tenant: $($script:TenantName)"
         Write-TranscriptLog "Report generation complete for: $($script:TenantName)" 'SUCCESS' 'MAIN' | Out-Null
 
-        Disconnect-PurviewSession
+        if ($script:Options.KeepConnected -eq $true) {
+            Write-Host '  - KeepConnected: skipping session disconnect.' -ForegroundColor Yellow
+            Write-TranscriptLog 'KeepConnected is set — sessions left open.' 'INFO' 'MAIN' | Out-Null
+        } else {
+            Disconnect-PurviewSession
+        }
 
     } #endregion foreach Target loop
+
+    # Stop transcript if we started one
+    if ($script:TranscriptStarted) {
+        try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
+        Write-Host "  - Transcript saved to: $($script:Options.TranscriptPath -replace '\.log$', '_console.log')" -ForegroundColor Cyan
+    }
 }

@@ -79,9 +79,15 @@ function Connect-PurviewSession {
     # Get-RetentionCompliancePolicy, Get-ComplianceCase, Get-SupervisoryReviewPolicyV2 etc.
     $ExistingIPPS = $null
     try {
-        # A quick probe to see if IPPS cmdlets are already available
-        $null = Get-DlpCompliancePolicy -ErrorAction Stop -WarningAction SilentlyContinue
-        $ExistingIPPS = $true
+        # Detect an active IPPS session by checking for a connected implicit remoting session
+        # that targets the Security & Compliance endpoint, rather than probing a cmdlet that
+        # requires specific permissions (which would silently skip reconnection on failure).
+        $ExistingIPPS = Get-PSSession -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.State -eq 'Opened' -and
+                ($_.ConfigurationName -match 'Microsoft.Exchange' -or $_.ComputerName -match 'compliance|protection\.outlook')
+            } |
+            Select-Object -First 1
     } catch { }
 
     if ($ExistingIPPS) {
